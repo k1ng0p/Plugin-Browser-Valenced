@@ -1,5 +1,5 @@
 {
-	"name": "My Plugin Repository",
-	"description": "Example plugin repository from the Valenced plugin template.",
+	"name": "Plugin Browser",
+	"description": "Discover plugins, explore repositories, and easily add new sources to Valenced.",
 	"channels": {}
 }
