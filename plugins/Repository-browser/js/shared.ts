@@ -89,7 +89,7 @@ export const ALERT_MODES: Record<AlertMode, { button: string; summary: string }>
 	off: { button: 'Off', summary: 'Off' },
 }
 
-export const SUPPORT_NOTICE = "This is an unofficial Plugin Browser. Don't ask for help or support in the Valenced server, you will be kicked for it. If you have an issue with a plugin, ask its author for help."
+export const SUPPORT_NOTICE = "IMPORTANT: Do not ask for Plugin Browser support, troubleshooting, or assistance in the Valenced server. Any requests for Plugin Browser-related support in this server may result in moderation action."
 export const NOTICE =
 	'The repositories listed here are made by the community and are not reviewed by Valenced or Discord. A plugin can access your account and run code inside this app. Only install plugins from authors you trust, read the source before you install, and use them at your own risk.'
 
