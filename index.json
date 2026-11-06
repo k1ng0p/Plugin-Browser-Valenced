@@ -1,0 +1,111 @@
+{
+  "format": 1,
+  "name": "My Plugin Repository",
+  "description": "Example plugin repository from the Valenced plugin template.",
+  "plugins": {
+    "com.example.emojis": {
+      "name": "Example Emojis",
+      "description": "Example emoji packs for Valenced.",
+      "author": "Your Name",
+      "channels": {
+        "latest": "1.0.0"
+      },
+      "versions": {
+        "1.0.0": {
+          "url": "https://k1ng0p.github.io/Plugin-Browser-Valenced/pool/com.example.emojis@1.0.0.zip",
+          "sha256": "b3195176d6bafd4d691d0e3777ff437de53988123e9c6ba9686f91cc552531a3",
+          "size": 7328,
+          "dependencies": {
+            "valenced.api": {
+              "version": ">=1 <2"
+            },
+            "discord": {
+              "version": "*"
+            },
+            "valenced.api.themes": {
+              "version": "*"
+            }
+          }
+        }
+      }
+    },
+    "com.example.fonts": {
+      "name": "Example Fonts",
+      "description": "Example font packs for Valenced.",
+      "author": "Your Name",
+      "channels": {
+        "latest": "1.0.0"
+      },
+      "versions": {
+        "1.0.0": {
+          "url": "https://k1ng0p.github.io/Plugin-Browser-Valenced/pool/com.example.fonts@1.0.0.zip",
+          "sha256": "2fdfe20a9eaa30606f8fd1a21dd3b30401b6650d2be5d34683baaab255613a6d",
+          "size": 2424124,
+          "dependencies": {
+            "valenced.api": {
+              "version": ">=1 <2"
+            },
+            "discord": {
+              "version": "*"
+            },
+            "valenced.api.themes": {
+              "version": "*"
+            }
+          }
+        }
+      }
+    },
+    "com.example.icons": {
+      "name": "Example Icons",
+      "description": "Example icon packs for Valenced.",
+      "author": "Your Name",
+      "channels": {
+        "latest": "1.1.0"
+      },
+      "versions": {
+        "1.1.0": {
+          "url": "https://k1ng0p.github.io/Plugin-Browser-Valenced/pool/com.example.icons@1.1.0.zip",
+          "sha256": "4b443c9ad15c5a41746e612c15cc70abc9387de329633efdd3a1cdc8672d5781",
+          "size": 6806,
+          "dependencies": {
+            "valenced.api": {
+              "version": ">=1 <2"
+            },
+            "discord": {
+              "version": "*"
+            },
+            "valenced.api.themes": {
+              "version": "*"
+            }
+          }
+        }
+      }
+    },
+    "com.example.themes": {
+      "name": "Example Themes",
+      "description": "Example themes for Valenced.",
+      "author": "Your Name",
+      "channels": {
+        "latest": "1.0.0"
+      },
+      "versions": {
+        "1.0.0": {
+          "url": "https://k1ng0p.github.io/Plugin-Browser-Valenced/pool/com.example.themes@1.0.0.zip",
+          "sha256": "148b3e9bdd09554a3b2ee9e64b1b57b74cebe9fcf73657b4cc75028ac9e7b5dd",
+          "size": 91229,
+          "dependencies": {
+            "valenced.api": {
+              "version": ">=1 <2"
+            },
+            "discord": {
+              "version": "*"
+            },
+            "valenced.api.themes": {
+              "version": "*"
+            }
+          }
+        }
+      }
+    }
+  }
+}
