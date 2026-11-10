@@ -121,6 +121,12 @@
       "badges": ["Trusted", "Developer", "Popular"]
     },
     {
+      "url": "https://apollyxnhashed.github.io/Valenced-Plugins/index.json",
+      "source": "https://github.com/ApollyxnHashed/Valenced-Plugins",
+      "discord": "921011505263149097",
+      "badges": ["Utility"]
+    },
+    {
       "url": "https://alpine-vortex.github.io/valenced-rain/index.json",
       "source": "https://github.com/alpine-vortex/valenced-rain",
       "discord": "",
