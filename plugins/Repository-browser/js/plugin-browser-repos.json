@@ -37,6 +37,12 @@
       "badges": ["Trusted", "Developer"]
     },
     {
+      "url": "https://raw.githubusercontent.com/dariussbezy/dariussbezy-Plugins/main/index.json",
+      "source": "https://github.com/dariussbezy/dariussbezy-Plugins",
+      "discord": "908767091522420817",
+      "badges": ["Utility", "Themes"]
+    },
+    {
       "url": "https://67.mlem.my/index.json",
       "source": "https://github.com/mlemception/mlem-plugins",
       "discord": "1274359272318304277",
