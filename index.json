@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "name": "Plugin Browser",
+  "name": "Plugin Browser by k1ng_op",
   "description": "Discover plugins, explore repositories, and easily add new sources to Valenced.",
   "plugins": {
     "k1ngop.repository-browser": {
@@ -9,7 +9,7 @@
       "author": "k1ng_op <641266820187160576> (https://github.com/k1ng0p \"GitHub\")",
       "icon": "ic_browse_channel",
       "channels": {
-        "latest": "1.5.8"
+        "latest": "1.6.0"
       },
       "versions": {
         "1.5.7": {
@@ -29,6 +29,19 @@
           "url": "https://k1ng0p.github.io/Plugin-Browser-Valenced/pool/k1ngop.repository-browser@1.5.8.zip",
           "sha256": "656fd3bd337268bd877605dc593e1c9e5484710df9315d85319866ca88725b6d",
           "size": 29131,
+          "dependencies": {
+            "valenced.api": {
+              "version": ">=1 <2"
+            },
+            "discord": {
+              "version": "*"
+            }
+          }
+        },
+        "1.6.0": {
+          "url": "https://k1ng0p.github.io/Plugin-Browser-Valenced/pool/k1ngop.repository-browser@1.6.0.zip",
+          "sha256": "034d60ece40f23327e09d2793c8960e5798805ee8e91a24e1918483535e17e80",
+          "size": 37340,
           "dependencies": {
             "valenced.api": {
               "version": ">=1 <2"
