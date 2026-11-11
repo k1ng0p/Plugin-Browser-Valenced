@@ -144,7 +144,7 @@ export function friendlyError(err: string) {
 	return err
 }
 
-function explainError(e: unknown) {
+export function explainError(e: unknown) {
 	const problems = (e as { details?: { problems?: { id: string; required?: string; installed?: boolean; enabled?: boolean }[] } } | null)?.details?.problems
 	const lines = (problems ?? []).map(problem => {
 		const range = problem.required ? ` ${problem.required}` : ''
@@ -182,15 +182,65 @@ export const bindReporter = (report: (error: unknown) => void) => {
 	reporter = report
 }
 
-type Problem = { at: number; context: string; message: string; count: number }
+let selfVersion = ''
+let discordVersion = ''
+
+export const setSelfVersion = (version: string) => {
+	selfVersion = version
+}
+
+export const setDiscordVersion = (version?: string) => {
+	if (version) discordVersion = version
+}
+
+// logs get copied around, the last line says which tool and version wrote them, so the first line leaves the version out
+export const signature = () => `-# Logged by k1ng_op's Repository Browser${selfVersion ? ` v${selfVersion}` : ''}`
+
+function environment() {
+	const { OS, Version } = ReactNative.Platform
+	return `${OS} ${Version} | Discord ${discordVersion || 'unknown version'}`
+}
+
+export const logText = (lines: (string | false | undefined)[]) => [environment(), '', ...lines.filter((line): line is string => typeof line === 'string'), signature()].join('\n')
+
+type Problem = { at: number; context: string; message: string; summary: string; lines: string[]; count: number }
 
 const MAX_PROBLEMS = 20
+// a problem that stopped happening fades out, one that keeps happening is renewed by every attempt
+const PROBLEM_TTL = 30 * 60 * 1000
 const problems: Problem[] = []
 
-export const recentProblems = () => problems
+// the host refused the action (bad artifact, missing dependency), nothing is broken in this plugin
+const fromHost = (error: unknown) => !!(error as { host?: boolean } | null)?.host
+
+// being offline, slow or answered with a broken file is the repository's side, so it is shown there and not reported as a plugin error
+function expected(error: unknown) {
+	const e = error as { name?: string; permanent?: boolean } | null
+	return e?.name === 'AbortError' || !!e?.permanent || error instanceof SyntaxError || /network request failed|failed to fetch/i.test(errorMessage(error))
+}
+
+// what else is known about the failure, so a copied log can be understood without the device
+function detailLines(error: unknown, info: string[]) {
+	const e = error as { code?: unknown; stack?: string } | null
+	const raw = errorMessage(error).split('\n')[0]
+	const meaning = explainError(error)
+	const stack = fromHost(error) ? undefined : e?.stack?.split('\n').slice(1, 4).map(line => line.trim()).join(' <- ')
+	return [
+		...info,
+		(typeof e?.code === 'string' || typeof e?.code === 'number') && `Code: ${e.code}`,
+		meaning !== raw && `Meaning: ${meaning}`,
+		stack && `Stack: ${stack}`,
+	].filter((line): line is string => typeof line === 'string' && line !== '')
+}
+
+export function recentProblems() {
+	const cutoff = Date.now() - PROBLEM_TTL
+	for (let index = problems.length - 1; index >= 0; index--) if (problems[index].at < cutoff) problems.splice(index, 1)
+	return problems
+}
 
 // returns true the first time a problem is seen, repeats only raise its counter
-function record(context: string, error: unknown) {
+function record(context: string, error: unknown, info: string[]) {
 	const message = errorMessage(error)
 	const known = problems.find(item => item.context === context && item.message === message)
 	if (known) {
@@ -198,40 +248,59 @@ function record(context: string, error: unknown) {
 		known.at = Date.now()
 		return false
 	}
-	problems.unshift({ at: Date.now(), context, message, count: 1 })
+	problems.unshift({ at: Date.now(), context, message, summary: explainError(error), lines: detailLines(error, info), count: 1 })
 	problems.length = Math.min(problems.length, MAX_PROBLEMS)
 	return true
 }
 
 // failures that are expected now and then (offline, timeouts) are kept for diagnostics only
-export const logProblem = (context: string, error: unknown) => void record(context, error)
+export const logProblem = (context: string, error: unknown, info: string[] = []) => void record(context, error, info)
 
 export function clearProblems(context: string) {
 	for (let index = problems.length - 1; index >= 0; index--) if (problems[index].context === context) problems.splice(index, 1)
 }
 
-// the install or enable was refused by Valenced itself (bad artifact, missing dependency), nothing is broken in this plugin
-const fromHost = (error: unknown) => !!(error as { host?: boolean } | null)?.host
+export function dropProblems(stale: (context: string) => boolean) {
+	for (let index = problems.length - 1; index >= 0; index--) if (stale(problems[index].context)) problems.splice(index, 1)
+}
 
-const WATERMARK = "Logged by k1ng_op's Repository Browser"
-
-// logs get copied around, this says which tool wrote them
-export function watermark(error: unknown, context = '') {
-	const wrapped = new Error(`${context ? `${context}: ` : ''}${errorMessage(error)}\n${WATERMARK}`)
+// the error that goes to plugin.reportError carries what was being done and the version that logged it
+export function watermark(error: unknown, context = '', info: string[] = []) {
+	const wrapped = new Error([`${context ? `${context}: ` : ''}${errorMessage(error)}`, ...detailLines(error, info), signature()].join('\n'))
 	if (error instanceof Error && error.stack) wrapped.stack = error.stack
 	return wrapped
 }
 
 // every error comes with what was being done, and one that keeps coming back is only sent on once
-export function reportError(error: unknown, context = '') {
-	if (!record(context, error) || fromHost(error)) return
-	reporter(watermark(error, context))
+export function reportError(error: unknown, context = '', info: string[] = []) {
+	if (!record(context, error, info) || fromHost(error) || expected(error)) return
+	reporter(watermark(error, context, info))
 }
 
 export function problemsText() {
-	if (!problems.length) return ''
-	const lines = problems.map(item => `${new Date(item.at).toISOString()} ${item.context || 'error'}: ${item.message}${item.count > 1 ? ` (x${item.count})` : ''}`)
-	return [...lines, '', WATERMARK].join('\n')
+	const items = recentProblems()
+	if (!items.length) return ''
+	return logText([
+		`Recent problems (${items.length})`,
+		'',
+		...items.flatMap(item => [
+			`${new Date(item.at).toISOString()} ${item.context || 'error'}${item.count > 1 ? ` (x${item.count})` : ''}`,
+			`  Error: ${item.message.split('\n')[0]}`,
+			...item.lines.map(line => `  ${line}`),
+			'',
+		]),
+	])
+}
+
+export function showProblems() {
+	const items = recentProblems()
+	const shown = items.slice(0, 5).map(item => `${item.context || 'Error'} (${ago(item.at)}${item.count > 1 ? `, ${item.count} times` : ''})\n${item.summary}`)
+	if (items.length > shown.length) shown.push(`And ${items.length - shown.length} more.`)
+	const text = items.length ? `${shown.join('\n\n')}\n\nThese clear on their own once the action works again.` : 'No problems right now.'
+	modal('Recent problems', text, Button => [
+		h(Button, { key: 'ok', text: 'OK', variant: 'secondary' }),
+		items.length ? h(Button, { key: 'copy', text: 'Copy log', variant: 'tertiary', onPress: () => copyToClipboard(problemsText()) }) : null,
+	].filter(Boolean))
 }
 
 export function copyToClipboard(text: string) {
@@ -293,11 +362,10 @@ export const inform = (title: string, text: string) => modal(title, text, Button
 export const showError = (e: unknown) => inform('Plugin Browser', explainError(e))
 
 // action reads as "install Cabin", it names the dialog and says what the log entry was about
-export function fail(e: unknown, action = '', info: string[] = []) {
-	reportError(e, action)
-	const stack = fromHost(e) ? undefined : (e as { stack?: string } | null)?.stack
-	const details = [action, ...info, errorMessage(e), stack, WATERMARK].filter(Boolean).join('\n')
-	modal(action ? `Couldn't ${action}` : 'Plugin Browser', describeError(e, info), Button => [
+export function fail(e: unknown, action = '', info: string[] = [], title?: string) {
+	reportError(e, action, info)
+	const details = logText([action && `Action: ${action}`, ...info, `Error: ${errorMessage(e)}`, ...detailLines(e, [])])
+	modal(title ?? (action ? `Couldn't ${action}` : 'Plugin Browser'), describeError(e, info), Button => [
 		h(Button, { key: 'ok', text: 'OK', variant: 'secondary' }),
 		h(Button, { key: 'copy', text: 'Copy details', variant: 'tertiary', onPress: () => copyToClipboard(details) }),
 	])
@@ -321,6 +389,51 @@ export const confirm = (title: string, text: string, label = 'Install', variant 
 			() => done(false),
 		),
 	)
+
+export const UNOFFICIAL_WARNING =
+	"Plugin Browser is unofficial. The repositories and plugins listed here are made by the community, not by Valenced.\n\nAdding unofficial repositories or installing unofficial plugins is at your own risk. The Plugin Browser author (k1ng_op) and the Valenced team are not responsible if anything happens to your account or device because of them.\n\nOnly add sources you trust."
+
+const WARNING_SECONDS = 5
+
+type WarningProps = { title: string; text: string; confirmText: string; destructive?: boolean; cancelable: boolean; onResult: (accepted: boolean) => void }
+
+// the confirm button stays off for a few seconds so the warning gets read
+function WarningAlert({ title, text, confirmText, destructive, cancelable, onResult }: WarningProps) {
+	const { AlertModal, AlertActionButton, Text } = Design
+	const [left, setLeft] = React.useState(WARNING_SECONDS)
+
+	React.useEffect(() => {
+		if (!left) return
+		const timer = setTimeout(() => setLeft(left - 1), 1000)
+		return () => clearTimeout(timer)
+	}, [left])
+
+	return h(AlertModal, {
+		title,
+		content: h(Text, { color: 'text-default' }, text),
+		actions: h(
+			React.Fragment,
+			null,
+			h(AlertActionButton, { key: 'ok', text: left ? `${confirmText} (${left})` : confirmText, variant: destructive ? 'destructive' : 'primary', disabled: left > 0, onPress: () => onResult(true) }),
+			cancelable ? h(AlertActionButton, { key: 'cancel', text: 'Cancel', variant: 'secondary', onPress: () => onResult(false) }) : null,
+		),
+	})
+}
+
+type WarningOptions = Omit<WarningProps, 'onResult'>
+
+// resolves true only when the confirm button is pressed, closing the dialog any other way counts as no
+export const warnUnofficial = (options: WarningOptions) =>
+	new Promise<boolean>(done => AlertActionCreators.openAlert('plugin-browser-unofficial', h(WarningAlert, { ...options, onResult: done }), () => done(false)))
+
+export const confirmAddRepos = (urls: string[]) =>
+	warnUnofficial({
+		title: urls.length > 1 ? 'Add unofficial repositories?' : 'Add unofficial repository?',
+		text: `Adding: ${urls.map(hostOf).join(', ')}\n\n${UNOFFICIAL_WARNING}`,
+		confirmText: 'I Understand',
+		destructive: true,
+		cancelable: true,
+	})
 
 // icon and title share a fixed-width slot so the text below lines up with the title
 export const iconSlot = (content: any) => h(ReactNative.View, { style: { width: ICON_SLOT, alignItems: 'center', justifyContent: 'center', marginRight: ICON_GAP } }, content)

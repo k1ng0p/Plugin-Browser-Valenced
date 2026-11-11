@@ -3,16 +3,18 @@ import { ReactNative } from '@valenced/react'
 import { RepoCount } from './components'
 import { bindStore, checkedRecently, checkUpdates, restore } from './data'
 import { Browser } from './settings'
-import { KEY, POLL_INTERVAL, bindReporter, icon, reportError, watermark } from './shared'
+import { formatVersion } from '@valenced/plugins/utils'
+import { KEY, POLL_INTERVAL, bindReporter, clearProblems, icon, reportError, setSelfVersion, watermark } from './shared'
 
 export default plugin({
-	jsonStorage: { load: true, default: { seen: {}, ack: 0, snaps: {}, remote: null, known: null, newRepos: {}, updatesSeen: null, alerts: {}, muted: {}, haptics: true, compact: false } },
+	jsonStorage: { load: true, default: { seen: {}, ack: 0, snaps: {}, remote: null, known: null, newRepos: {}, updatesSeen: null, alerts: {}, muted: {}, haptics: true, compact: false, warned: false } },
 	SettingsComponent: Browser,
 	start({ cleanup, plugin, jsonStorage }) {
 		try {
 			if (plugin.startedLate) plugin.requireReload()
 			bindStore(jsonStorage)
 			bindReporter(error => plugin.reportError(error))
+			setSelfVersion(formatVersion(plugin.manifest.version))
 			restore()
 
 			const undo: (() => void)[] = []
@@ -20,7 +22,11 @@ export default plugin({
 			let attempts = 0
 			let stopped = false
 
-			const poll = () => checkUpdates().catch(error => reportError(error, 'check for updates'))
+			const poll = () =>
+				checkUpdates().then(
+					() => clearProblems('check for updates'),
+					error => reportError(error, 'check for updates'),
+				)
 			poll().then(() => settings.refreshSettings())
 
 			const interval = setInterval(poll, POLL_INTERVAL)
@@ -81,7 +87,7 @@ export default plugin({
 				settings.refreshSettings()
 			})
 		} catch (e) {
-			plugin.reportError(watermark(e))
+			plugin.reportError(watermark(e, 'start Plugin Browser'))
 		}
 	},
 })

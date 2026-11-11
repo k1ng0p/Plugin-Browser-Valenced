@@ -4,7 +4,7 @@ import { Stores, withStoreName } from '@valenced/discord/flux'
 import { filters, lookupModule } from '@valenced/modules/finders'
 import { ReactNative } from '@valenced/react'
 import { available, providedIds, refreshAvailable } from './valenced'
-import { AVATAR_TTL, BUILT_IN_REPO, DAY, KINDS, MAX_REQUESTS, RECHECK_AFTER_FOCUS, REMOTE_LIST, asObject, errorMessage, hostOf, indexUrl, isRemote, kindOf, clearProblems, logProblem, reportError, setHaptics, slash, sleep } from './shared'
+import { AVATAR_TTL, BUILT_IN_REPO, DAY, KINDS, MAX_REQUESTS, RECHECK_AFTER_FOCUS, REMOTE_LIST, asObject, clearProblems, dropProblems, errorMessage, hostOf, indexUrl, isRemote, kindOf, reportError, setHaptics, slash, sleep, UNOFFICIAL_WARNING, warnUnofficial } from './shared'
 import type { AlertMode, ListedPlugin, Listing, Note, PluginKind, Repo } from './shared'
 
 export type SeenEntry = {
@@ -28,6 +28,7 @@ type StoreData = {
 	muted: Record<string, PluginKind[]>
 	haptics?: boolean
 	compact?: boolean
+	warned?: boolean
 	disabledAll?: string[]
 }
 
@@ -68,6 +69,7 @@ export function readStore(): StoreData {
 		muted: asObject(raw.muted),
 		haptics: typeof raw.haptics === 'boolean' ? raw.haptics : undefined,
 		compact: typeof raw.compact === 'boolean' ? raw.compact : undefined,
+		warned: raw.warned === true,
 		disabledAll: Array.isArray(raw.disabledAll) ? raw.disabledAll.filter((id: unknown): id is string => typeof id === 'string') : undefined,
 	}
 }
@@ -80,7 +82,7 @@ export function update(change: (data: StoreData) => Partial<StoreData>) {
 		const next = { ...current, ...change(current) }
 		if (JSON.stringify(next) !== JSON.stringify(store.cache)) await store.set(next, true)
 	})
-	writes = job.catch(reportError)
+	writes = job.catch(error => reportError(error, 'save settings'))
 	return writes
 }
 
@@ -308,7 +310,7 @@ async function fetchIndex(url: string, attempt: number, timeout: number) {
 		// the second attempt goes without ?t= in case the host dislikes query strings
 		const target = indexUrl(url)
 		const res = await fetch(attempt === 1 ? target : `${target}${target.includes('?') ? '&' : '?'}t=${Date.now()}`, { signal: controller.signal })
-		if (!res.ok) throw Object.assign(new Error(`HTTP ${res.status}`), { permanent: res.status < 500 && res.status !== 429 })
+		if (!res.ok) throw Object.assign(new Error(`HTTP ${res.status}`), { status: res.status, permanent: res.status < 500 && res.status !== 429 })
 		const limited = !largeAllowed.has(url)
 		if (limited && Number(res.headers.get('content-length')) > MAX_INDEX_BYTES) throw tooLarge()
 		const body = await res.text()
@@ -321,7 +323,7 @@ async function fetchIndex(url: string, attempt: number, timeout: number) {
 	}
 }
 
-async function fetchRepo(url: string) {
+export async function fetchRepo(url: string) {
 	const deadline = Date.now() + 45000
 	let lastError: any
 	for (let attempt = 0; attempt < 3; attempt++) {
@@ -424,9 +426,7 @@ export function load(url: string) {
 		})
 		.catch((e: any) => {
 			const err = e?.name === 'AbortError' ? 'Request timed out' : errorMessage(e)
-			// being offline, slow or broken on the repository's side is shown on the repository, anything else is worth a report
-			if (e?.name === 'AbortError' || e?.permanent || e instanceof SyntaxError || /network request failed/i.test(err)) logProblem(`load ${url}`, e)
-			else reportError(e, `load ${url}`)
+			reportError(e, `load ${url}`, [`Repository: ${url}`, `Index: ${indexUrl(url)}`, `Plugins listed before: ${listings.get(url)?.plugins.length ?? 0}`])
 			const previous = listings.get(url)
 			listings.set(url, previous && !previous.err ? { ...previous, stale: err, tooLarge: !!e?.tooLarge } : { name: url, plugins: [], err, tooLarge: !!e?.tooLarge })
 		})
@@ -485,15 +485,17 @@ async function fetchRepoList() {
 			if (res.ok) {
 				const json = await res.json()
 				const repos = parseRepoList(json)
+				clearProblems('load the repository list')
+				clearProblems('read the repository list')
 				return repos && { repos, note: parseNote(json?.note) }
 			}
 			if (res.status < 500) {
-				reportError(new Error(`HTTP ${res.status}`), 'load the repository list')
+				reportError(Object.assign(new Error(`HTTP ${res.status}`), { status: res.status }), 'load the repository list', [`Address: ${REMOTE_LIST}`, 'The list of repositories could not be downloaded, the last saved list is used'])
 				return null
 			}
 		} catch (e) {
 			// offline or timed out keeps the saved list, but a list that can't be read is worth reporting
-			if (e instanceof SyntaxError) reportError(e, 'read the repository list')
+			if (e instanceof SyntaxError) reportError(e, 'read the repository list', [`Address: ${REMOTE_LIST}`, 'The file was downloaded but is not valid JSON'])
 		} finally {
 			clearTimeout(timer)
 		}
@@ -600,6 +602,14 @@ export async function checkUpdates(only?: string[], onEach?: () => void) {
 				return null
 			})
 	lastCheck = Date.now()
+	if (checked) {
+		clearProblems('check for plugin updates')
+		// a repository that is no longer listed has nothing left to fail
+		dropProblems(context => {
+			const url = context.match(/^(?:load|refresh) (\S+)/)?.[1]
+			return !!url && !catalog.some(repo => slash(repo.url) === slash(url))
+		})
+	}
 
 	await update(data => {
 		const seen = { ...data.seen }
@@ -625,6 +635,25 @@ export function restore() {
 		}
 		return update(() => ({}))
 	})
+}
+
+let warningShown = false
+
+// the first time the browser is opened, the person has to read that everything in it is unofficial
+export async function showFirstRunWarning() {
+	if (warningShown) return
+	warningShown = true
+	await whenLoaded()
+	if (readStore().warned) return
+	const accepted = await warnUnofficial({
+		title: 'Unofficial Plugin Browser',
+		text: UNOFFICIAL_WARNING,
+		confirmText: 'OK',
+		cancelable: false,
+	})
+	// closing the dialog without OK asks again the next time the browser opens
+	if (accepted) await save({ warned: true })
+	else warningShown = false
 }
 
 export const isLegacy = (plugin: ListedPlugin) => (plugin.requires ?? []).some(entry => !entry.endsWith('(optional)') && entry.startsWith('revenge.'))

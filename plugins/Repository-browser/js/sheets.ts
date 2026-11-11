@@ -8,7 +8,7 @@ import { parsePluginContributor } from '@valenced/plugins/utils'
 import { React, ReactNative } from '@valenced/react'
 import { lookupGeneratedIconComponent } from '@valenced/utils/discord'
 import { catalog, dependentsOf, dismiss, dismissAll, isLegacy, listings, missingDependencies, openUserProfile, parseAuthor, setAlertMode, setKindMuted, useStore } from './data'
-import { available, blocked, checkInstall, install, openPluginSettings, pendingReload, putRepos, readState, setHeld, toggle, uninstall, updatePlugins } from './valenced'
+import { addRepo, available, blocked, checkInstall, install, openPluginSettings, pendingReload, readState, setHeld, toggle, uninstall, updatePlugins } from './valenced'
 import type { BulkItem } from './valenced'
 import type { ValencedState } from './valenced'
 import { ALERT_MODES, ICON_INDENT, OWNER_ID, tap, SOURCE_URL, ago, asset, isBuiltIn, compatibilityWarning, copyToClipboard, fail, formatBytes, h, icon, iconSlot, native, reportError, slash } from './shared'
@@ -251,7 +251,7 @@ function RefPickerSheet({ id, repo, pluginRef, onSelect }: RefPickerProps) {
 			try {
 				setListing((await findListing(repo, id, refresh)) ?? null)
 			} catch (e) {
-				fail(e, `load ${id}`)
+				fail(e, `load ${id}`, [`Plugin: ${id}`])
 				if (!refresh) setListing(null)
 			} finally {
 				setLoading(false)
@@ -699,7 +699,7 @@ function PluginSheet({ repo: initialRepo, plugin, onChange }: SheetProps) {
 					setState(next)
 					setEnabledNow(null)
 				})
-				.catch(reportError),
+				.catch(error => reportError(error, 'read Valenced state')),
 		[],
 	)
 
@@ -719,7 +719,7 @@ function PluginSheet({ repo: initialRepo, plugin, onChange }: SheetProps) {
 		if (!state || installed) return
 		findListing(repo.url, id)
 			.then(found => setListing(found ?? null))
-			.catch(reportError)
+			.catch(error => reportError(error, 'find the plugin listing'))
 	}, [state === null, repo.url])
 
 	// Valenced plans the install ahead of time, so a plugin that can't be installed says why before the button is tapped
@@ -769,9 +769,14 @@ function PluginSheet({ repo: initialRepo, plugin, onChange }: SheetProps) {
 								onChange()
 							}
 						} else {
-							await putRepos(slash(repo.url), true).catch(fail)
-							await refresh()
-							onChange()
+							const added = await addRepo(repo.url).catch(error => {
+								fail(error, 'add repository', [`Repository: ${repo.url}`])
+								return false
+							})
+							if (added) {
+								await refresh()
+								onChange()
+							}
 						}
 					} finally {
 						setBusy(false)
@@ -905,7 +910,7 @@ function PluginSheet({ repo: initialRepo, plugin, onChange }: SheetProps) {
 					onValueChange: (value: boolean) => {
 						setHeld(id, value)
 							.then(changed)
-							.catch(fail)
+							.catch(error => fail(error, `${value ? 'pin' : 'unpin'} ${name}`, [`${name} (${id})`]))
 					},
 				}),
 				repositoryRow,

@@ -1,6 +1,6 @@
 import { RootNavigationRef } from '@valenced/discord/modules/main_tabs_v2'
 import { formatVersion } from '@valenced/plugins/utils'
-import { BUILT_IN_REPO, askReload, asObject, clearProblems, confirm, errorMessage, fail, inform, logProblem, native, reportError, showError, slash, tap, usesEnvelope } from './shared'
+import { BUILT_IN_REPO, askReload, asObject, clearProblems, confirm, confirmAddRepos, errorMessage, explainError, fail, isBuiltIn, logProblem, native, reportError, setDiscordVersion, showError, slash, tap, usesEnvelope } from './shared'
 import type { AvailableUpdate, ListedPlugin, PluginRef, Repo, ValencedRepo } from './shared'
 type PendingUpdate = { id: string; name: string; installed: string; available: string; channel: string }
 export type ValencedState = Awaited<ReturnType<typeof readState>>
@@ -38,17 +38,23 @@ async function refreshProvided(repos: ValencedRepo[]) {
 				native('valenced.plugins.repos.listPlugins', [repo.url]).then(
 					(list: { id: string }[] | null) => {
 						providedCache.set(slash(repo.url), { at: Date.now(), ids: (list ?? []).map(item => item.id) })
+						clearProblems(`list ${repo.url}`)
 					},
 					error => {
 						// a repository that can't be listed is asked again after a short wait, not on every read
 						providedCache.set(slash(repo.url), { at: Date.now() - PROVIDED_TTL + PROVIDED_RETRY, ids: [] })
-						logProblem(`list ${repo.url}`, error)
+						logProblem(`list ${repo.url}`, error, [`Repository: ${repo.url}`, 'Failed while reading which plugins it offers, dependencies from it may not resolve'])
 					},
 				),
 			),
 	)
 	providedIds.clear()
 	for (const repo of repos) if (repo.enabled) for (const id of providedCache.get(slash(repo.url))?.ids ?? []) providedIds.add(id)
+}
+
+const discordOf = (plugins?: { manifest: { id: string; version: unknown } }[]) => {
+	const found = plugins?.find(plugin => plugin.manifest.id === 'discord')
+	return found ? formatVersion(found.manifest.version as Parameters<typeof formatVersion>[0]) : undefined
 }
 
 export async function readState() {
@@ -61,6 +67,7 @@ export async function readState() {
 	])
 
 	await refreshProvided(repos ?? [])
+	setDiscordVersion(discordOf(plugins))
 
 	const installed = new Map<string, { version: string; settings: boolean; source: { repo: string | null; channel: string; held: boolean } | null }>()
 	let discord: string | undefined
@@ -79,10 +86,16 @@ export async function readState() {
 }
 
 export async function refreshAvailable(catalog: Repo[]) {
-	const added = await repoList().catch(error => {
-		reportError(error, 'read the added repositories')
-		return []
-	})
+	const added = await repoList().then(
+		list => {
+			clearProblems('read the added repositories')
+			return list
+		},
+		error => {
+			reportError(error, 'read the added repositories')
+			return []
+		},
+	)
 	const envelope = await usesEnvelope()
 	const found: AvailableUpdate[] = []
 	const blockedNow = new Map<string, { repo: string; text: string }>()
@@ -98,7 +111,7 @@ export async function refreshAvailable(catalog: Repo[]) {
 						providedCache.delete(slash(repo.url))
 						clearProblems(`refresh ${repo.url}`)
 					},
-					error => logProblem(`refresh ${repo.url}`, error),
+					error => logProblem(`refresh ${repo.url}`, error, [`Repository: ${repo.url}`, 'Failed while refreshing the copy of its index that Valenced keeps, so updates from it may be missed']),
 				),
 			),
 		)
@@ -176,6 +189,13 @@ export function putRepos(url: string, enabled: boolean) {
 	const job = repoWrites.then(() => writeRepos(url, enabled))
 	repoWrites = job.catch(() => {})
 	return job
+}
+
+// adding is a choice the person has to make knowing the source is unofficial, the built in repository is Valenced's own
+export async function addRepo(url: string) {
+	if (!isBuiltIn(url) && !(await confirmAddRepos([url]))) return false
+	await putRepos(slash(url), true)
+	return true
 }
 
 // refreshing every repository at once floods the network and the native side
@@ -336,10 +356,13 @@ export async function updatePlugins(updates: PendingUpdate[]) {
 		askReloadFor(await trackUpdated())
 		return true
 	} catch (e) {
-		reportError(e, 'update plugins')
 		await trackUpdated()
-		if (done.length) inform(`Updated ${done.length} of ${updates.length}`, errorMessage(e).split('\n')[0])
-		else showError(e)
+		fail(
+			e,
+			'update plugins',
+			[`Updating: ${updates.map(item => `${item.name} (${item.id}) ${item.installed} to ${item.available}`).join(', ')}`, done.length ? `Already updated: ${done.map(item => item.name).join(', ')}` : ''].filter(Boolean),
+			done.length ? `Updated ${done.length} of ${updates.length}` : undefined,
+		)
 		return false
 	}
 }
@@ -385,15 +408,14 @@ export async function toggleMany(ids: string[], on: boolean, nameOf: (id: string
 	}
 
 	const failed = ids.filter(id => !done.includes(id))
-	if (lastError && failed.length) reportError(lastError, `${word} plugins`)
 	if (done.length) {
 		tap()
 		// Valenced asks for the reload itself when plugins are turned off
 		const flagged = await trackReload(done.map(id => ({ id, name: nameOf(id) })))
 		if (on) askReloadFor(flagged)
-		if (failed.length) inform('Some plugins could not be changed', `${done.length} of ${ids.length} changed. ${errorMessage(lastError).split('\n')[0]}`)
-	} else if (lastError) {
-		showError(lastError)
+	}
+	if (lastError && failed.length) {
+		fail(lastError, `${word} plugins`, [`Changed ${done.length} of ${ids.length}`, `Failed: ${failed.map(id => `${nameOf(id)} (${id})`).join(', ')}`], done.length ? 'Some plugins could not be changed' : undefined)
 	}
 	return done
 }
@@ -406,7 +428,7 @@ export async function toggle(id: string, on: boolean, name = id) {
 		if (on) askReloadFor(flagged)
 		return true
 	} catch (e) {
-		fail(e, `${on ? 'enable' : 'disable'} ${id}`)
+		fail(e, `${on ? 'enable' : 'disable'} ${name}`, [`${name} (${id})`])
 		return false
 	}
 }
@@ -425,9 +447,12 @@ export async function uninstallMany(items: { id: string; name: string }[]) {
 		tap()
 		return true
 	} catch (e) {
-		reportError(e, 'uninstall plugins')
-		if (done.length) inform(`Uninstalled ${done.length} of ${items.length}`, errorMessage(e).split('\n')[0])
-		else showError(e)
+		fail(
+			e,
+			'uninstall plugins',
+			[`Uninstalling: ${items.map(item => `${item.name} (${item.id})`).join(', ')}`, done.length ? `Already removed: ${done.join(', ')}` : ''].filter(Boolean),
+			done.length ? `Uninstalled ${done.length} of ${items.length}` : undefined,
+		)
 		return false
 	}
 }
@@ -436,7 +461,9 @@ export async function installMany(items: BulkItem[]) {
 	const done: string[] = []
 	try {
 		const enabledRepos = (await repoList()).filter(repo => repo.enabled).map(repo => slash(repo.url))
-		for (const url of [...new Set(items.map(item => slash(item.repo)))].filter(url => !enabledRepos.includes(url))) await putRepos(url, true)
+		const toAdd = [...new Set(items.map(item => slash(item.repo)))].filter(url => !enabledRepos.includes(url))
+		if (toAdd.some(url => !isBuiltIn(url)) && !(await confirmAddRepos(toAdd.filter(url => !isBuiltIn(url))))) return false
+		for (const url of toAdd) await putRepos(url, true)
 		const repos = await repoList()
 		const urlOf = (url: string) => repos.find(repo => slash(repo.url) === slash(url))?.url ?? url
 
@@ -450,10 +477,13 @@ export async function installMany(items: BulkItem[]) {
 				plans.push(await native('valenced.plugins.planInstall', envelope ? [item.id, planTarget(item.id, repo)] : [item.id, null, null, [repo]]))
 				planned.push(item)
 			} catch (e) {
-				skipped.push(`${item.name}: ${errorMessage(e).split('\n')[0]}`)
+				skipped.push(`${item.name} (${item.id}): ${explainError(e)}`)
 			}
 		}
-		if (!plans.length) return showError(new Error(skipped.join('\n')))
+		if (!plans.length) {
+			fail(new Error(skipped.join('\n')), 'install plugins', [`Repositories: ${[...new Set(items.map(item => item.repoName))].join(', ')}`], 'No plugin could be installed')
+			return false
+		}
 
 		const extras = [...new Set(plans.flatMap(plan => plan.actions.map((action: any) => action.id as string)))].filter(id => !planned.some(item => item.id === id))
 		const warnings = plans.flatMap(warningMessages)
@@ -479,12 +509,15 @@ export async function installMany(items: BulkItem[]) {
 		askReloadFor(await trackReload([...handled].map(id => ({ id, name: items.find(item => item.id === id)?.name ?? id }))))
 		return true
 	} catch (e) {
-		reportError(e, 'install plugins')
 		const finished = done.map(id => ({ id, name: items.find(item => item.id === id)?.name ?? id }))
 		await enableInstalled(finished)
 		await trackReload(finished)
-		if (done.length) inform(`Installed ${done.length} of ${items.length}`, errorMessage(e).split('\n')[0])
-		else showError(e)
+		fail(
+			e,
+			'install plugins',
+			[`Installing: ${items.map(item => `${item.name} (${item.id})`).join(', ')}`, done.length ? `Already installed: ${done.join(', ')}` : ''].filter(Boolean),
+			done.length ? `Installed ${done.length} of ${items.length}` : undefined,
+		)
 		return false
 	}
 }

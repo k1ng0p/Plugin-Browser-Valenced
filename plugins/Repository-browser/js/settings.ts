@@ -4,6 +4,7 @@ import { ReactNativeSafeAreaContext } from '@valenced/externals/react-native-saf
 import { ReactNavigationNative } from '@valenced/externals/react-navigation'
 import { React, ReactNative } from '@valenced/react'
 import { CountsCard, NoteBanner, Notice, PluginCard, TipNote, RepoAvatar, RepoBadges } from './components'
+import { lastScan, scanRepository, showScan, VERDICTS } from './scan'
 import { openBulkInstallSheet, openAboutSheet, openFeedSheet, openKindsSheet, openRepoInfoSheet, openBulkUninstallSheet, openPluginSheet } from './sheets'
 import type { CardUpdate } from './components'
 import {
@@ -23,14 +24,15 @@ import {
 	readStore,
 	repoOwner,
 	save,
+	showFirstRunWarning,
 	useStore,
 } from './data'
 import type { SeenEntry } from './data'
 import type { FeedItem, UpdateItem } from './sheets'
-import { THEMES_SETTINGS, THEME_SUPPORT, available, blocked, checkInstall, install, installMany, openPluginSettings, forcedReload, pendingReload, reloadNames, putRepos, readState, toggle, toggleMany, uninstall, uninstallMany, updatePlugins } from './valenced'
+import { THEMES_SETTINGS, THEME_SUPPORT, addRepo, available, blocked, checkInstall, install, installMany, openPluginSettings, forcedReload, pendingReload, reloadNames, putRepos, readState, toggle, toggleMany, uninstall, uninstallMany, updatePlugins } from './valenced'
 import type { BulkItem } from './valenced'
 import type { ValencedState } from './valenced'
-import { BUILT_IN_NOTE, OWNER_ID, native, SELF_ID, SOURCE_URL, confirm, setHaptics, tap, COMMUNITY_REPO, DAY, KINDS, PAGE_SIZE, SORTS, ago, asset, compatibilityWarning, copyToClipboard, fail, friendlyError, h, hostOf, icon, inform, isBuiltIn, kindOf, modal, problemsText, recentProblems, reportError, slash } from './shared'
+import { BUILT_IN_NOTE, OWNER_ID, native, SELF_ID, SOURCE_URL, confirm, setHaptics, tap, COMMUNITY_REPO, DAY, KINDS, PAGE_SIZE, SORTS, ago, asset, compatibilityWarning, fail, friendlyError, h, hostOf, icon, inform, isBuiltIn, kindOf, modal, recentProblems, reportError, showProblems, slash } from './shared'
 import type { AlertMode, AvailableUpdate, ListedPlugin, PluginKind, Repo, SortKey } from './shared'
 
 type Hit = { repo: Repo; plugin: ListedPlugin }
@@ -72,6 +74,7 @@ function useBrowser() {
 	const [retrying, setRetrying] = React.useState('')
 	const [reloadingRepo, setReloadingRepo] = React.useState(false)
 	const [booting, setBooting] = React.useState(true)
+	const [scan, setScan] = React.useState<{ url: string; done: number; total: number } | null>(null)
 	const [epoch, setEpoch] = React.useState(() => freshAvatarEpoch())
 	const [, rerender] = React.useReducer((n: number) => n + 1, 0)
 
@@ -81,7 +84,7 @@ function useBrowser() {
 				for (const [id, change] of toggled) if ((next.enabled[id]?.enabled ?? false) !== change.before) toggled.delete(id)
 				setState(next)
 			})
-			.catch(reportError)
+			.catch(error => reportError(error, 'read Valenced state'))
 
 	const afterToggle = (id: string, value: boolean) => {
 		toggled.set(id, { value, before: state?.enabled[id]?.enabled ?? false })
@@ -143,8 +146,9 @@ function useBrowser() {
 		let mounted = true
 		save({ ack: Date.now() })
 		syncState()
+		showFirstRunWarning().catch(error => reportError(error, 'show the first-run warning'))
 		checkUpdates(undefined, () => mounted && rerender())
-			.catch(reportError)
+			.catch(error => reportError(error, 'check for updates'))
 			.then(() => {
 				if (!mounted) return
 				save({ ack: Date.now() })
@@ -398,7 +402,7 @@ function useBrowser() {
 				text: fromSearch ? 'Open repo' : repoEntry ? 'Enable repo' : 'Add repo',
 				size: 'sm',
 				variant: 'secondary',
-				onPress: () => (fromSearch ? showRepo(repo) : putRepos(slash(repo.url), true).then(syncState).catch(fail)),
+				onPress: () => (fromSearch ? showRepo(repo) : addRepo(repo.url).then(async added => { if (added) await syncState() }).catch(error => fail(error, 'add repository', [`Repository: ${repo.url}`]))),
 			}),
 		]
 	}
@@ -645,9 +649,30 @@ function useBrowser() {
 		)
 	}
 
+	const runScan = async (repo: Repo) => {
+		if (scan) return
+		const name = repoName(repo)
+		const again = () => runScan(repo)
+		setScan({ url: repo.url, done: 0, total: 0 })
+		try {
+			const result = await scanRepository(repo, name, (done, total) => setScan({ url: repo.url, done, total }))
+			if (result) showScan(result, again)
+		} finally {
+			setScan(null)
+		}
+	}
+
+	const openScan = (repo: Repo) => {
+		const previous = lastScan(repo.url)
+		if (previous) showScan(previous, () => runScan(repo))
+		else runScan(repo)
+	}
+
 	const noMatches = () => h(Text, { key: 'none', variant: 'text-md/medium' }, `Nothing matches "${query.trim()}".`)
 
 	return {
+		scan,
+		openScan,
 		seen,
 		newRepos,
 		current,
@@ -888,7 +913,7 @@ function MainPage(b: Ctx, tab: PluginKind) {
 			? h(
 					TableRowGroup,
 					{ key: 'problems', title: 'Diagnostics' },
-					h(TableRow, { label: `Recent problems (${recentProblems().length})`, subLabel: 'Copy them to share when something breaks', arrow: true, onPress: () => copyToClipboard(problemsText()) }),
+					h(TableRow, { label: `Recent problems (${recentProblems().length})`, subLabel: 'See what went wrong and copy the log to share', arrow: true, onPress: showProblems }),
 				)
 			: null,
 	]
@@ -914,6 +939,22 @@ function SearchPage(b: Ctx) {
 			: null,
 		repos.length ? h(TableRowGroup, { key: 'repos', title: 'Repositories' }, repos.map(repo => repoRow(b, repo))) : null,
 	]
+}
+
+// optional, nothing is downloaded until it is asked for
+function scanRow(b: Ctx, repo: Repo) {
+	const { TableRow } = Design
+	const busy = b.scan?.url === repo.url
+	const previous = lastScan(repo.url)
+	const progress = b.scan?.total ? ` ${b.scan.done}/${b.scan.total}` : ''
+	return h(TableRow, {
+		key: 'scan',
+		label: busy ? `Scanning${progress}...` : 'Scan for malware',
+		subLabel: previous ? `${VERDICTS[previous.verdict]} \u2022 ${ago(previous.at)}` : 'Optional. Checks plugin code for token grabbers and other threats',
+		icon: icon('ShieldIcon'),
+		arrow: !busy,
+		onPress: busy || b.scan ? undefined : () => b.openScan(repo),
+	})
 }
 
 function RepoPage(b: Ctx, repo: Repo) {
@@ -950,7 +991,7 @@ function RepoPage(b: Ctx, repo: Repo) {
 						subLabel: entry.enabled ? 'Added to Valenced' : 'Turn on to install its plugins',
 						icon: icon(entry.enabled ? 'CircleCheckIcon' : 'CircleXIcon'),
 						value: entry.enabled,
-						onValueChange: (value: boolean) => putRepos(entry.url, value).then(b.syncState).catch(fail),
+						onValueChange: (value: boolean) => putRepos(entry.url, value).then(b.syncState).catch(error => fail(error, `${value ? 'enable' : 'disable'} repository`, [`Repository: ${entry.url}`])),
 					})
 				: h(TableRow, {
 						key: 'repo',
@@ -958,8 +999,9 @@ function RepoPage(b: Ctx, repo: Repo) {
 						subLabel: repo.url,
 						icon: icon('DownloadIcon'),
 						arrow: true,
-						onPress: () => putRepos(slash(repo.url), true).then(b.syncState).catch(fail),
+						onPress: () => addRepo(repo.url).then(async added => { if (added) await b.syncState() }).catch(error => fail(error, 'add repository', [`Repository: ${repo.url}`])),
 					}),
+			listing && !listing.err ? scanRow(b, repo) : null,
 		]),
 	]
 
