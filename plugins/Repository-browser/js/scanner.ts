@@ -1,12 +1,12 @@
 import { strFromU8, unzipSync } from 'fflate'
 
 export type Severity = 'high' | 'medium' | 'low'
-export type Finding = { severity: Severity; reason: string; evidence?: string }
+export type Finding = { severity: Severity; reason: string; label?: string; evidence?: string }
 export type PluginScan = { id: string; name: string; version: string; findings: Finding[]; skipped?: string }
 export type Verdict = 'clean' | 'suspicious' | 'dangerous' | 'unknown'
-export type RepoScan = { url: string; name: string; at: number; plugins: PluginScan[]; verdict: Verdict }
+export type RepoScan = { url: string; source?: string; name: string; at: number; plugins: PluginScan[]; verdict: Verdict }
 
-type Rule = { severity: Severity; reason: string; test: RegExp; evidence?: (match: string) => string }
+type Rule = { severity: Severity; reason: string; label: string; test: RegExp; evidence?: (match: string) => string }
 
 const MAX_ZIP = 5 * 1024 * 1024
 const MAX_FILE = 3 * 1024 * 1024
@@ -22,34 +22,34 @@ const TRUSTED_HOST = /(^|\.)(discord\.com|discordapp\.com|discordapp\.net|discor
 const RULES: Rule[] = [
 	{
 		severity: 'high',
-		reason: 'Contains a Discord webhook address, a common way to send stolen data out',
+		reason: 'Contains a Discord webhook address, a common way to send stolen data out', label: 'Discord webhook',
 		test: /discord(?:app)?\.com\/api\/(?:v\d+\/)?webhooks\/\d+\/[\w-]+/i,
 		evidence: () => 'Discord webhook address',
 	},
-	{ severity: 'high', reason: 'Contains a Telegram bot address, a common way to send stolen data out', test: /api\.telegram\.org\/bot/i, evidence: () => 'Telegram bot address' },
+	{ severity: 'high', reason: 'Contains a Telegram bot address, a common way to send stolen data out', label: 'Telegram bot address', test: /api\.telegram\.org\/bot/i, evidence: () => 'Telegram bot address' },
 	{
 		severity: 'high',
-		reason: 'Contains the pattern of a Discord login token',
+		reason: 'Contains the pattern of a Discord login token', label: 'Token-like string',
 		test: /mfa\.[\w-]{80,}|[\w-]{24,28}\.[\w-]{6,7}\.[\w-]{27,38}/,
 		evidence: match => `${match.slice(0, 6)}...`,
 	},
 	{
 		severity: 'high',
-		reason: 'Uses an IP logging service',
+		reason: 'Uses an IP logging service', label: 'IP logger',
 		test: /grabify\.link|iplogger\.(?:org|com|ru)|2no\.co|yip\.su|leancoding\.co|stopify\.co|joinmy\.site|catsnthings\.fun/i,
 	},
 	{
 		severity: 'high',
-		reason: 'Looks for Discord or browser data files where logins are stored',
+		reason: 'Looks for Discord or browser data files where logins are stored', label: 'Looks for stored logins',
 		// written with character classes so this plugin's own code does not match its own rule
 		test: /Local[ ]Storage[\\/]+level[d]b|discord_desktop_cor[e]|Login[ ]Dat[a]/,
 	},
-	{ severity: 'medium', reason: 'Reads your Discord login token', test: /\bgetToken\s*\(/ },
-	{ severity: 'medium', reason: 'Runs code built from text while the app is running', test: /\beval\s*\(|new\s+Function\s*\(/ },
-	{ severity: 'medium', reason: 'Connects to a raw IP address', test: /https?:\/\/(?:\d{1,3}\.){3}\d{1,3}/ },
+	{ severity: 'medium', reason: 'Reads your Discord login token', label: 'Reads login token', test: /\bgetToken\s*\(/ },
+	{ severity: 'medium', reason: 'Runs code built from text while the app is running', label: 'Runs text as code', test: /\beval\s*\(|new\s+Function\s*\(/ },
+	{ severity: 'medium', reason: 'Connects to a raw IP address', label: 'Raw IP address', test: /https?:\/\/(?:\d{1,3}\.){3}\d{1,3}/ },
 	{
 		severity: 'medium',
-		reason: 'Loads from a tunnel or paste site, its content can change at any time',
+		reason: 'Loads from a tunnel or paste site, its content can change at any time', label: 'Tunnel or paste site',
 		test: /ngrok(?:-free)?\.(?:io|app|dev)|trycloudflare\.com|pastebin\.com\/raw|hastebin\.com\/raw|rentry\.co\/\w+\/raw|serveo\.net|loca\.lt/i,
 	},
 ]
@@ -62,17 +62,17 @@ export function scanSource(source: string, ownHost: string) {
 	const findings: Finding[] = []
 	for (const rule of RULES) {
 		const match = source.match(rule.test)?.[0]
-		if (match) findings.push({ severity: rule.severity, reason: rule.reason, evidence: (rule.evidence ?? ((text: string) => text.slice(0, 48)))(match) })
+		if (match) findings.push({ severity: rule.severity, reason: rule.reason, label: rule.label, evidence: (rule.evidence ?? ((text: string) => text.slice(0, 48)))(match) })
 	}
 
-	if ((source.match(OBFUSCATED)?.length ?? 0) >= 20) findings.push({ severity: 'medium', reason: 'Code is deliberately obfuscated, which hides what it does' })
+	if ((source.match(OBFUSCATED)?.length ?? 0) >= 20) findings.push({ severity: 'medium', reason: 'Code is deliberately obfuscated, which hides what it does', label: 'Obfuscated code' })
 
 	const hosts = [...new Set([...source.matchAll(URL_HOST)].map(match => match[1].toLowerCase().replace(/\.$/, '')))].filter(host => host.includes('.') && host !== ownHost && !TRUSTED_HOST.test(host))
 	const readsToken = findings.some(finding => finding.reason === 'Reads your Discord login token')
 	const runsText = findings.some(finding => finding.reason.startsWith('Runs code built from text'))
 
-	if (hosts.length && readsToken) findings.push({ severity: 'high', reason: 'Reads your login token and also contacts outside servers', evidence: hosts.slice(0, 3).join(', ') })
-	if (hosts.length && runsText) findings.push({ severity: 'high', reason: 'Can run code that comes from outside servers', evidence: hosts.slice(0, 3).join(', ') })
+	if (hosts.length && readsToken) findings.push({ severity: 'high', reason: 'Reads your login token and also contacts outside servers', label: 'Token read + outside servers', evidence: hosts.slice(0, 3).join(', ') })
+	if (hosts.length && runsText) findings.push({ severity: 'high', reason: 'Can run code that comes from outside servers', label: 'Code from outside servers', evidence: hosts.slice(0, 3).join(', ') })
 	if (hosts.length) findings.push({ severity: 'low', reason: `Contacts other servers: ${hosts.slice(0, 6).join(', ')}${hosts.length > 6 ? ` and ${hosts.length - 6} more` : ''}` })
 	return findings
 }
@@ -89,20 +89,20 @@ export function scanArchive(bytes: Uint8Array, expected: { id: string; size?: nu
 	})
 
 	if (typeof expected.size === 'number' && expected.size !== bytes.length) {
-		findings.push({ severity: 'medium', reason: `The file is ${bytes.length} bytes but the index says ${expected.size}, it may have been replaced after publishing` })
+		findings.push({ severity: 'medium', reason: `The file is ${bytes.length} bytes but the index says ${expected.size}, it may have been replaced after publishing`, label: 'Size differs from index' })
 	}
 	for (const name of tooLarge) findings.push({ severity: 'low', reason: `${name} is too large to read, it was not checked` })
 
 	for (const name of Object.keys(files)) {
-		if (EXECUTABLE.test(name)) findings.push({ severity: 'high', reason: 'Contains a program file that has no place in a plugin', evidence: name })
+		if (EXECUTABLE.test(name)) findings.push({ severity: 'high', reason: 'Contains a program file that has no place in a plugin', label: 'Program file in ZIP', evidence: name })
 		else if (NATIVE.test(name)) findings.push({ severity: 'low', reason: `Contains native code (${name}), this scan cannot read it` })
 	}
 
 	if (files['manifest.json']) {
 		const manifestId = (JSON.parse(strFromU8(files['manifest.json'])) as { id?: unknown }).id
-		if (manifestId !== expected.id) findings.push({ severity: 'medium', reason: `The manifest id (${String(manifestId)}) does not match the id in the index`, evidence: expected.id })
+		if (manifestId !== expected.id) findings.push({ severity: 'medium', reason: `The manifest id (${String(manifestId)}) does not match the id in the index`, label: 'Manifest id mismatch', evidence: expected.id })
 	} else {
-		findings.push({ severity: 'medium', reason: 'The archive has no manifest.json' })
+		findings.push({ severity: 'medium', reason: 'The archive has no manifest.json', label: 'No manifest.json' })
 	}
 
 	for (const [name, data] of Object.entries(files)) {
@@ -160,7 +160,7 @@ export async function scanRepo(repo: { url: string; name: string; index: { plugi
 			result.skipped = (e as { name?: string } | null)?.name === 'AbortError' ? 'Download timed out' : ((e as { message?: string } | null)?.message ?? String(e)).split('\n')[0]
 			onSkip(id, e)
 		}
-		if (/^(valenced|revenge)\./.test(id) && !/(^|\.)valenced\.app$/.test(ownHost)) result.findings.push({ severity: 'medium', reason: "Uses an id that looks like one of Valenced's own plugins" })
+		if (/^(valenced|revenge)\./.test(id) && !/(^|\.)valenced\.app$/.test(ownHost)) result.findings.push({ severity: 'medium', reason: "Uses an id that looks like one of Valenced's own plugins", label: 'Id mimics a Valenced plugin' })
 		return result
 	}
 
@@ -174,5 +174,6 @@ export async function scanRepo(repo: { url: string; name: string; index: { plugi
 	)
 
 	plugins.sort((a, b) => a.name.localeCompare(b.name))
-	return { url: repo.url, name: repo.name, at: Date.now(), plugins, verdict: verdictOf(plugins) } satisfies RepoScan
+	const result: RepoScan = { url: repo.url, name: repo.name, at: Date.now(), plugins, verdict: verdictOf(plugins) }
+	return result
 }

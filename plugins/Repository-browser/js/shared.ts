@@ -193,15 +193,26 @@ export const setDiscordVersion = (version?: string) => {
 	if (version) discordVersion = version
 }
 
-// logs get copied around, the last line says which tool and version wrote them, so the first line leaves the version out
+// logs get copied around, the last line says which tool and version wrote them, with the device it ran on just above, so the device line leaves the version out
 export const signature = () => `-# Logged by k1ng_op's Repository Browser${selfVersion ? ` v${selfVersion}` : ''}`
 
-function environment() {
+// Android reports its API level (33), not the version people know (13)
+const ANDROID_VERSIONS: Record<number, string> = { 28: '9', 29: '10', 30: '11', 31: '12', 32: '12L', 33: '13', 34: '14', 35: '15', 36: '16' }
+
+function platformName() {
 	const { OS, Version } = ReactNative.Platform
-	return `${OS} ${Version} | Discord ${discordVersion || 'unknown version'}`
+	if (OS === 'android') {
+		const release = ANDROID_VERSIONS[Number(Version)]
+		return release ? `Android ${release} (API ${Version})` : `Android (API ${Version})`
+	}
+	return `${OS === 'ios' ? 'iOS' : OS} ${Version}`
 }
 
-export const logText = (lines: (string | false | undefined)[]) => [environment(), '', ...lines.filter((line): line is string => typeof line === 'string'), signature()].join('\n')
+function environment() {
+	return `${platformName()} | Discord ${discordVersion || 'unknown version'}`
+}
+
+export const logText = (lines: (string | false | undefined)[]) => [...lines.filter((line): line is string => typeof line === 'string'), environment(), signature()].join('\n')
 
 type Problem = { at: number; context: string; message: string; summary: string; lines: string[]; count: number }
 
@@ -394,6 +405,7 @@ export const UNOFFICIAL_WARNING =
 	"Plugin Browser is unofficial. The repositories and plugins listed here are made by the community, not by Valenced.\n\nAdding unofficial repositories or installing unofficial plugins is at your own risk. The Plugin Browser author (k1ng_op) and the Valenced team are not responsible if anything happens to your account or device because of them.\n\nOnly add sources you trust."
 
 const WARNING_SECONDS = 5
+const WARNING_KEY = 'plugin-browser-unofficial'
 
 type WarningProps = { title: string; text: string; confirmText: string; destructive?: boolean; cancelable: boolean; onResult: (accepted: boolean) => void }
 
@@ -401,6 +413,10 @@ type WarningProps = { title: string; text: string; confirmText: string; destruct
 function WarningAlert({ title, text, confirmText, destructive, cancelable, onResult }: WarningProps) {
 	const { AlertModal, AlertActionButton, Text } = Design
 	const [left, setLeft] = React.useState(WARNING_SECONDS)
+	const answer = (accepted: boolean) => {
+		onResult(accepted)
+		AlertActionCreators.dismissAlert(WARNING_KEY)
+	}
 
 	React.useEffect(() => {
 		if (!left) return
@@ -414,17 +430,17 @@ function WarningAlert({ title, text, confirmText, destructive, cancelable, onRes
 		actions: h(
 			React.Fragment,
 			null,
-			h(AlertActionButton, { key: 'ok', text: left ? `${confirmText} (${left})` : confirmText, variant: destructive ? 'destructive' : 'primary', disabled: left > 0, onPress: () => onResult(true) }),
-			cancelable ? h(AlertActionButton, { key: 'cancel', text: 'Cancel', variant: 'secondary', onPress: () => onResult(false) }) : null,
+			h(AlertActionButton, { key: 'ok', text: left ? `${confirmText} (${left})` : confirmText, variant: destructive ? 'destructive' : 'primary', disabled: left > 0, onPress: () => answer(true) }),
+			cancelable ? h(AlertActionButton, { key: 'cancel', text: 'Cancel', variant: 'secondary', onPress: () => answer(false) }) : null,
 		),
 	})
 }
 
 type WarningOptions = Omit<WarningProps, 'onResult'>
 
-// resolves true only when the confirm button is pressed, closing the dialog any other way counts as no
+// the dialog can only be closed with its buttons, tapping outside it or going back does nothing
 export const warnUnofficial = (options: WarningOptions) =>
-	new Promise<boolean>(done => AlertActionCreators.openAlert('plugin-browser-unofficial', h(WarningAlert, { ...options, onResult: done }), () => done(false)))
+	new Promise<boolean>(done => AlertActionCreators.openAlert(WARNING_KEY, h(WarningAlert, { ...options, onResult: done }), () => done(false), { dismissable: false }))
 
 export const confirmAddRepos = (urls: string[]) =>
 	warnUnofficial({

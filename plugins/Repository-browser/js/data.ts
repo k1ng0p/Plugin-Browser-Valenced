@@ -651,7 +651,7 @@ export async function showFirstRunWarning() {
 		confirmText: 'OK',
 		cancelable: false,
 	})
-	// closing the dialog without OK asks again the next time the browser opens
+	// closed by something other than its button (all alerts dismissed), so it has not been read
 	if (accepted) await save({ warned: true })
 	else warningShown = false
 }

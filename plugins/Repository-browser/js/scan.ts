@@ -30,32 +30,27 @@ const RISK: Record<Severity, string> = { high: 'HIGH', medium: 'MEDIUM', low: 'L
 
 const riskOf = (plugin: PluginScan) => RISK[seriousFindings(plugin)[0].severity]
 
+// kept short on purpose, it gets pasted into chat
 export function scanReport(scan: RepoScan) {
 	const bad = flagged(scan)
 	const scanned = scan.plugins.filter(plugin => !plugin.skipped).length
 	const count = (severity: Severity) => bad.reduce((sum, plugin) => sum + plugin.findings.filter(finding => finding.severity === severity).length, 0)
 	const lines = [
-		`Repository scan: ${scan.name}`,
-		`Address: ${scan.url}`,
-		`Result: ${VERDICTS[scan.verdict]}`,
-		`Scanned at: ${new Date(scan.at).toISOString()}`,
-		`Plugins in repository: ${scan.plugins.length}`,
-		`Plugins scanned: ${scanned}`,
-		`Plugins not scanned: ${scan.plugins.length - scanned}`,
-		`Plugins with detections: ${bad.length}`,
-		`Detected threats: ${count('high')} high, ${count('medium')} medium`,
+		`Scan: ${scan.name}`,
+		`Level: ${VERDICTS[scan.verdict]}`,
+		`Repo: ${scan.url}`,
+		scan.source && `Source: ${scan.source}`,
+		`${scan.plugins.length} plugins, ${scanned} scanned, ${bad.length} detected (${count('high')} high, ${count('medium')} medium)`,
+		`${new Date(scan.at).toISOString().slice(0, 16).replace('T', ' ')} UTC`,
 		'',
-		'Detected plugins',
-		'----------------',
 	]
 	for (const [index, plugin] of bad.entries()) {
-		lines.push('', `${index + 1}. ${plugin.name}`, `   ID: ${plugin.id}`, `   Version: ${plugin.version}`, `   Risk: ${riskOf(plugin)}`, '   Why:')
-		for (const finding of seriousFindings(plugin)) {
-			lines.push(`   - [${RISK[finding.severity]}] ${finding.reason}`)
-			if (finding.evidence) lines.push(`     Found: ${finding.evidence}`)
-		}
+		// no "1." or "- " at the start of a line, Discord turns those into one long numbered list
+		if (index) lines.push('')
+		lines.push(`${index + 1}) ${plugin.name} ${plugin.version} (${plugin.id}) - ${riskOf(plugin)}`)
+		for (const finding of seriousFindings(plugin)) lines.push(`\u2022 [${RISK[finding.severity]}] ${finding.label ?? finding.reason}${finding.evidence ? ` (${finding.evidence})` : ''}`)
 	}
-	lines.push('', 'This is a basic check of the plugin code. It can miss threats, so it does not prove a plugin is safe.', '')
+	lines.push('', 'Basic scan, it can miss threats.', '')
 	return logText(lines)
 }
 
@@ -99,6 +94,7 @@ export async function scanRepository(repo: Repo, name: string, onProgress: (done
 	try {
 		const index = await fetchRepo(repo.url)
 		const result = await scanRepo({ url: repo.url, name, index }, onProgress, (id, error) => logProblem(`scan ${id}`, error, [`Repository: ${repo.url}`, 'The plugin file could not be downloaded or opened for the scan']))
+		result.source = repo.source
 		scans.set(slash(repo.url), result)
 		return result
 	} catch (e) {
