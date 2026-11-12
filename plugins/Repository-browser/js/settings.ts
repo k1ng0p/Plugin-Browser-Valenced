@@ -75,6 +75,7 @@ function useBrowser() {
 	const [reloadingRepo, setReloadingRepo] = React.useState(false)
 	const [booting, setBooting] = React.useState(true)
 	const [scan, setScan] = React.useState<{ url: string; done: number; total: number } | null>(null)
+	const stopScan = React.useRef<AbortController | null>(null)
 	const [epoch, setEpoch] = React.useState(() => freshAvatarEpoch())
 	const [, rerender] = React.useReducer((n: number) => n + 1, 0)
 
@@ -651,12 +652,12 @@ function useBrowser() {
 
 	const runScan = async (repo: Repo) => {
 		if (scan) return
-		const name = repoName(repo)
-		const again = () => runScan(repo)
+		const controller = new AbortController()
+		stopScan.current = controller
 		setScan({ url: repo.url, done: 0, total: 0 })
 		try {
-			const result = await scanRepository(repo, name, (done, total) => setScan({ url: repo.url, done, total }))
-			if (result) showScan(result, again)
+			const result = await scanRepository(repo, repoName(repo), controller.signal, (done, total) => setScan({ url: repo.url, done, total }))
+			if (result) showScan(result, () => runScan(repo))
 		} finally {
 			setScan(null)
 		}
@@ -673,6 +674,7 @@ function useBrowser() {
 	return {
 		scan,
 		openScan,
+		cancelScan: () => stopScan.current?.abort(),
 		seen,
 		newRepos,
 		current,
@@ -941,7 +943,6 @@ function SearchPage(b: Ctx) {
 	]
 }
 
-// optional, nothing is downloaded until it is asked for
 function scanRow(b: Ctx, repo: Repo) {
 	const { TableRow } = Design
 	const busy = b.scan?.url === repo.url
@@ -949,11 +950,11 @@ function scanRow(b: Ctx, repo: Repo) {
 	const progress = b.scan?.total ? ` ${b.scan.done}/${b.scan.total}` : ''
 	return h(TableRow, {
 		key: 'scan',
-		label: busy ? `Scanning${progress}...` : 'Scan for malware',
+		label: busy ? `Scanning${progress}, tap to cancel` : 'Scan for malware',
 		subLabel: previous ? `${VERDICTS[previous.verdict]} \u2022 ${ago(previous.at)}` : 'Optional. Checks plugin code for token grabbers and other threats',
 		icon: icon('ShieldIcon'),
 		arrow: !busy,
-		onPress: busy || b.scan ? undefined : () => b.openScan(repo),
+		onPress: busy ? b.cancelScan : b.scan ? undefined : () => b.openScan(repo),
 	})
 }
 

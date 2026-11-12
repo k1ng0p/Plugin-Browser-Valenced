@@ -191,7 +191,7 @@ export function putRepos(url: string, enabled: boolean) {
 	return job
 }
 
-// adding is a choice the person has to make knowing the source is unofficial, the built in repository is Valenced's own
+// everything except the built in repository is unofficial
 export async function addRepo(url: string) {
 	if (!isBuiltIn(url) && !(await confirmAddRepos([url]))) return false
 	await putRepos(slash(url), true)
@@ -320,6 +320,13 @@ export async function install(repoUrl: string, plugin: ListedPlugin, ref?: Plugi
 	}
 }
 
+// the dialog for a batch that stopped halfway says how far it got
+function failBatch(error: unknown, action: string, past: string, items: string[], done: string[]) {
+	const info = [`Plugins: ${items.join(', ')}`]
+	if (done.length) info.push(`Already ${past.toLowerCase()}: ${done.join(', ')}`)
+	fail(error, `${action} plugins`, info, done.length ? `${past} ${done.length} of ${items.length}` : undefined)
+}
+
 export async function updatePlugins(updates: PendingUpdate[]) {
 	const done: PendingUpdate[] = []
 	let before: ValencedState | null = null
@@ -357,12 +364,7 @@ export async function updatePlugins(updates: PendingUpdate[]) {
 		return true
 	} catch (e) {
 		await trackUpdated()
-		fail(
-			e,
-			'update plugins',
-			[`Updating: ${updates.map(item => `${item.name} (${item.id}) ${item.installed} to ${item.available}`).join(', ')}`, done.length ? `Already updated: ${done.map(item => item.name).join(', ')}` : ''].filter(Boolean),
-			done.length ? `Updated ${done.length} of ${updates.length}` : undefined,
-		)
+		failBatch(e, 'update', 'Updated', updates.map(item => `${item.name} (${item.id}) ${item.installed} to ${item.available}`), done.map(item => item.name))
 		return false
 	}
 }
@@ -447,12 +449,7 @@ export async function uninstallMany(items: { id: string; name: string }[]) {
 		tap()
 		return true
 	} catch (e) {
-		fail(
-			e,
-			'uninstall plugins',
-			[`Uninstalling: ${items.map(item => `${item.name} (${item.id})`).join(', ')}`, done.length ? `Already removed: ${done.join(', ')}` : ''].filter(Boolean),
-			done.length ? `Uninstalled ${done.length} of ${items.length}` : undefined,
-		)
+		failBatch(e, 'uninstall', 'Uninstalled', items.map(item => `${item.name} (${item.id})`), done)
 		return false
 	}
 }
@@ -512,12 +509,7 @@ export async function installMany(items: BulkItem[]) {
 		const finished = done.map(id => ({ id, name: items.find(item => item.id === id)?.name ?? id }))
 		await enableInstalled(finished)
 		await trackReload(finished)
-		fail(
-			e,
-			'install plugins',
-			[`Installing: ${items.map(item => `${item.name} (${item.id})`).join(', ')}`, done.length ? `Already installed: ${done.join(', ')}` : ''].filter(Boolean),
-			done.length ? `Installed ${done.length} of ${items.length}` : undefined,
-		)
+		failBatch(e, 'install', 'Installed', items.map(item => `${item.name} (${item.id})`), done)
 		return false
 	}
 }

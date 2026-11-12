@@ -1,108 +1,91 @@
 import { strFromU8, unzipSync } from 'fflate'
 
 export type Severity = 'high' | 'medium' | 'low'
-export type Finding = { severity: Severity; reason: string; label?: string; evidence?: string }
+export type Finding = { severity: Severity; reason: string; evidence?: string }
 export type PluginScan = { id: string; name: string; version: string; findings: Finding[]; skipped?: string }
 export type Verdict = 'clean' | 'suspicious' | 'dangerous' | 'unknown'
 export type RepoScan = { url: string; source?: string; name: string; at: number; plugins: PluginScan[]; verdict: Verdict }
 
-type Rule = { severity: Severity; reason: string; label: string; test: RegExp; evidence?: (match: string) => string }
+type Rule = { severity: Severity; reason: string; test: RegExp; evidence?: (match: string) => string }
+type IndexPlugin = { name?: string; channels?: Record<string, string>; versions?: Record<string, { url?: string; size?: number; sha256?: string }> }
 
 const MAX_ZIP = 5 * 1024 * 1024
 const MAX_FILE = 3 * 1024 * 1024
-const PARALLEL = 3
+const MAX_UNPACKED = 20 * 1024 * 1024
+// two at a time keeps memory low, each archive can unpack to 20 MB
+const PARALLEL = 2
+const CACHE_TTL = 10 * 60 * 1000
 const DOWNLOAD_TIMEOUT = 20000
 
 const EXECUTABLE = /\.(exe|bat|cmd|sh|apk|scr|dll|vbs|ps1|msi)$/i
 const NATIVE = /\.(jar|dex|so)$/i
-
-// hosts a plugin can reasonably talk to, anything else is listed so it can be checked by hand
 const TRUSTED_HOST = /(^|\.)(discord\.com|discordapp\.com|discordapp\.net|discord\.gg|github\.com|githubusercontent\.com|github\.io|valenced\.app|gstatic\.com|googleapis\.com)$/i
+const OBFUSCATED = /_0x[0-9a-f]{4,6}\b/g
+const URL_HOST = /https?:\/\/([a-z0-9.-]+)/gi
+// a plugin whose index entry has not changed is not downloaded again for a while
+const cache = new Map<string, { at: number; findings: Finding[] }>()
+const READS_TOKEN = 'Reads login token'
 
 const RULES: Rule[] = [
-	{
-		severity: 'high',
-		reason: 'Contains a Discord webhook address, a common way to send stolen data out', label: 'Discord webhook',
-		test: /discord(?:app)?\.com\/api\/(?:v\d+\/)?webhooks\/\d+\/[\w-]+/i,
-		evidence: () => 'Discord webhook address',
-	},
-	{ severity: 'high', reason: 'Contains a Telegram bot address, a common way to send stolen data out', label: 'Telegram bot address', test: /api\.telegram\.org\/bot/i, evidence: () => 'Telegram bot address' },
-	{
-		severity: 'high',
-		reason: 'Contains the pattern of a Discord login token', label: 'Token-like string',
-		test: /mfa\.[\w-]{80,}|[\w-]{24,28}\.[\w-]{6,7}\.[\w-]{27,38}/,
-		evidence: match => `${match.slice(0, 6)}...`,
-	},
-	{
-		severity: 'high',
-		reason: 'Uses an IP logging service', label: 'IP logger',
-		test: /grabify\.link|iplogger\.(?:org|com|ru)|2no\.co|yip\.su|leancoding\.co|stopify\.co|joinmy\.site|catsnthings\.fun/i,
-	},
-	{
-		severity: 'high',
-		reason: 'Looks for Discord or browser data files where logins are stored', label: 'Looks for stored logins',
-		// written with character classes so this plugin's own code does not match its own rule
-		test: /Local[ ]Storage[\\/]+level[d]b|discord_desktop_cor[e]|Login[ ]Dat[a]/,
-	},
-	{ severity: 'medium', reason: 'Reads your Discord login token', label: 'Reads login token', test: /\bgetToken\s*\(/ },
-	{ severity: 'medium', reason: 'Runs code built from text while the app is running', label: 'Runs text as code', test: /\beval\s*\(|new\s+Function\s*\(/ },
-	{ severity: 'medium', reason: 'Connects to a raw IP address', label: 'Raw IP address', test: /https?:\/\/(?:\d{1,3}\.){3}\d{1,3}/ },
+	{ severity: 'high', reason: 'Discord webhook', test: /discord(?:app)?\.com\/api\/(?:v\d+\/)?webhooks\/\d+\/[\w-]+/i, evidence: () => 'Discord webhook address' },
+	{ severity: 'high', reason: 'Telegram bot address', test: /api\.telegram\.org\/bot/i, evidence: () => 'Telegram bot address' },
+	{ severity: 'high', reason: 'Token-like string', test: /mfa\.[\w-]{80,}|[\w-]{24,28}\.[\w-]{6,7}\.[\w-]{27,38}/, evidence: match => `${match.slice(0, 6)}...` },
+	{ severity: 'high', reason: 'IP logger', test: /grabify\.link|iplogger\.(?:org|com|ru)|2no\.co|yip\.su|leancoding\.co|stopify\.co|joinmy\.site|catsnthings\.fun/i },
+	// character classes keep this plugin's own code from matching its own rule
+	{ severity: 'high', reason: 'Looks for stored logins', test: /Local[ ]Storage[\\/]+level[d]b|discord_desktop_cor[e]|Login[ ]Dat[a]/ },
+	{ severity: 'medium', reason: READS_TOKEN, test: /\bgetToken\s*\(/ },
+	{ severity: 'medium', reason: 'Runs text as code', test: /\beval\s*\(|new\s+Function\s*\(/ },
+	{ severity: 'medium', reason: 'Raw IP address', test: /https?:\/\/(?:\d{1,3}\.){3}\d{1,3}/ },
 	{
 		severity: 'medium',
-		reason: 'Loads from a tunnel or paste site, its content can change at any time', label: 'Tunnel or paste site',
+		reason: 'Tunnel or paste site',
 		test: /ngrok(?:-free)?\.(?:io|app|dev)|trycloudflare\.com|pastebin\.com\/raw|hastebin\.com\/raw|rentry\.co\/\w+\/raw|serveo\.net|loca\.lt/i,
 	},
 ]
 
-const OBFUSCATED = /_0x[0-9a-f]{4,6}\b/g
-const URL_HOST = /https?:\/\/([a-z0-9.-]+)/gi
+const rank: Record<Severity, number> = { high: 0, medium: 1, low: 2 }
 
-// the checks that need the whole script to be read together
+export const serious = (plugin: PluginScan) => plugin.findings.filter(finding => finding.severity !== 'low').sort((a, b) => rank[a.severity] - rank[b.severity])
+
+export const flagged = (scan: RepoScan) => scan.plugins.filter(plugin => serious(plugin).length).sort((a, b) => rank[serious(a)[0].severity] - rank[serious(b)[0].severity])
+
 export function scanSource(source: string, ownHost: string) {
 	const findings: Finding[] = []
 	for (const rule of RULES) {
 		const match = source.match(rule.test)?.[0]
-		if (match) findings.push({ severity: rule.severity, reason: rule.reason, label: rule.label, evidence: (rule.evidence ?? ((text: string) => text.slice(0, 48)))(match) })
+		if (match) findings.push({ severity: rule.severity, reason: rule.reason, evidence: rule.evidence ? rule.evidence(match) : match.slice(0, 48) })
 	}
-
-	if ((source.match(OBFUSCATED)?.length ?? 0) >= 20) findings.push({ severity: 'medium', reason: 'Code is deliberately obfuscated, which hides what it does', label: 'Obfuscated code' })
+	if ((source.match(OBFUSCATED)?.length ?? 0) >= 20) findings.push({ severity: 'medium', reason: 'Obfuscated code' })
 
 	const hosts = [...new Set([...source.matchAll(URL_HOST)].map(match => match[1].toLowerCase().replace(/\.$/, '')))].filter(host => host.includes('.') && host !== ownHost && !TRUSTED_HOST.test(host))
-	const readsToken = findings.some(finding => finding.reason === 'Reads your Discord login token')
-	const runsText = findings.some(finding => finding.reason.startsWith('Runs code built from text'))
-
-	if (hosts.length && readsToken) findings.push({ severity: 'high', reason: 'Reads your login token and also contacts outside servers', label: 'Token read + outside servers', evidence: hosts.slice(0, 3).join(', ') })
-	if (hosts.length && runsText) findings.push({ severity: 'high', reason: 'Can run code that comes from outside servers', label: 'Code from outside servers', evidence: hosts.slice(0, 3).join(', ') })
-	if (hosts.length) findings.push({ severity: 'low', reason: `Contacts other servers: ${hosts.slice(0, 6).join(', ')}${hosts.length > 6 ? ` and ${hosts.length - 6} more` : ''}` })
+	if (hosts.length && findings.some(finding => finding.reason === READS_TOKEN)) findings.push({ severity: 'high', reason: 'Token read + outside servers', evidence: hosts.slice(0, 3).join(', ') })
+	if (hosts.length) findings.push({ severity: 'low', reason: `Contacts: ${hosts.slice(0, 6).join(', ')}${hosts.length > 6 ? ` and ${hosts.length - 6} more` : ''}` })
 	return findings
 }
 
 export function scanArchive(bytes: Uint8Array, expected: { id: string; size?: number; ownHost: string }) {
 	const findings: Finding[] = []
-	const tooLarge: string[] = []
+	let unpacked = 0
 	const files = unzipSync(bytes, {
 		filter: file => {
-			if (file.originalSize <= MAX_FILE) return true
-			tooLarge.push(file.name)
+			if (file.originalSize <= MAX_FILE && (unpacked += file.originalSize) <= MAX_UNPACKED) return true
+			findings.push({ severity: 'low', reason: `${file.name} too large to read` })
 			return false
 		},
 	})
 
-	if (typeof expected.size === 'number' && expected.size !== bytes.length) {
-		findings.push({ severity: 'medium', reason: `The file is ${bytes.length} bytes but the index says ${expected.size}, it may have been replaced after publishing`, label: 'Size differs from index' })
-	}
-	for (const name of tooLarge) findings.push({ severity: 'low', reason: `${name} is too large to read, it was not checked` })
+	if (expected.size !== undefined && expected.size !== bytes.length) findings.push({ severity: 'medium', reason: 'Size differs from index', evidence: `${bytes.length} instead of ${expected.size} bytes` })
 
 	for (const name of Object.keys(files)) {
-		if (EXECUTABLE.test(name)) findings.push({ severity: 'high', reason: 'Contains a program file that has no place in a plugin', label: 'Program file in ZIP', evidence: name })
-		else if (NATIVE.test(name)) findings.push({ severity: 'low', reason: `Contains native code (${name}), this scan cannot read it` })
+		if (EXECUTABLE.test(name)) findings.push({ severity: 'high', reason: 'Program file in ZIP', evidence: name })
+		else if (NATIVE.test(name)) findings.push({ severity: 'low', reason: `Native code: ${name}` })
 	}
 
 	if (files['manifest.json']) {
 		const manifestId = (JSON.parse(strFromU8(files['manifest.json'])) as { id?: unknown }).id
-		if (manifestId !== expected.id) findings.push({ severity: 'medium', reason: `The manifest id (${String(manifestId)}) does not match the id in the index`, label: 'Manifest id mismatch', evidence: expected.id })
+		if (manifestId !== expected.id) findings.push({ severity: 'medium', reason: 'Manifest id mismatch', evidence: String(manifestId) })
 	} else {
-		findings.push({ severity: 'medium', reason: 'The archive has no manifest.json', label: 'No manifest.json' })
+		findings.push({ severity: 'medium', reason: 'No manifest.json' })
 	}
 
 	for (const [name, data] of Object.entries(files)) {
@@ -114,64 +97,79 @@ export function scanArchive(bytes: Uint8Array, expected: { id: string; size?: nu
 export function verdictOf(plugins: PluginScan[]): Verdict {
 	const scanned = plugins.filter(plugin => !plugin.skipped)
 	if (!scanned.length) return 'unknown'
-	const levels = scanned.flatMap(plugin => plugin.findings.map(finding => finding.severity))
+	const levels = scanned.flatMap(serious).map(finding => finding.severity)
 	if (levels.includes('high')) return 'dangerous'
-	return levels.includes('medium') ? 'suspicious' : 'clean'
+	return levels.length ? 'suspicious' : 'clean'
 }
 
 const hostOf = (url: string) => url.match(/^https:\/\/([^/]+)/)?.[1].toLowerCase() ?? ''
+const aborted = (message: string) => Object.assign(new Error(message), { name: 'AbortError' })
 
-async function download(url: string) {
-	const controller = new AbortController()
-	const timer = setTimeout(() => controller.abort(), DOWNLOAD_TIMEOUT)
-	try {
-		const res = await fetch(url, { signal: controller.signal })
-		if (!res.ok) throw new Error(`HTTP ${res.status}`)
-		if (Number(res.headers.get('content-length')) > MAX_ZIP) throw new Error('larger than 5 MB')
-		const bytes = new Uint8Array(await res.arrayBuffer())
-		if (bytes.length > MAX_ZIP) throw new Error('larger than 5 MB')
-		return bytes
-	} finally {
-		clearTimeout(timer)
-	}
+// XMLHttpRequest instead of fetch so a download can be cut off once it passes the size limit
+function download(url: string, signal: AbortSignal) {
+	return new Promise<Uint8Array>((resolve, reject) => {
+		const xhr = new XMLHttpRequest()
+		const stop = (error: Error) => {
+			xhr.abort()
+			reject(error)
+		}
+		xhr.responseType = 'arraybuffer'
+		xhr.timeout = DOWNLOAD_TIMEOUT
+		xhr.onprogress = event => event.loaded > MAX_ZIP && stop(new Error('larger than 5 MB'))
+		xhr.onload = () => {
+			if (xhr.status < 200 || xhr.status >= 300) reject(new Error(`HTTP ${xhr.status}`))
+			else if (xhr.response.byteLength > MAX_ZIP) reject(new Error('larger than 5 MB'))
+			else resolve(new Uint8Array(xhr.response))
+		}
+		xhr.onerror = () => reject(new Error('Network request failed'))
+		xhr.ontimeout = () => reject(aborted('Download timed out'))
+		signal.addEventListener('abort', () => stop(aborted('Scan cancelled')))
+		xhr.open('GET', url)
+		xhr.send()
+	})
 }
 
-type IndexPlugin = { name?: string; channels?: Record<string, string>; versions?: Record<string, { url?: string; size?: number }> }
-
-// scans the newest build of every plugin in a repository's index, what could not be scanned says why
-export async function scanRepo(repo: { url: string; name: string; index: { plugins: Record<string, IndexPlugin> } }, onProgress: (done: number, total: number) => void, onSkip: (id: string, error: unknown) => void) {
+// scans the newest build of every plugin in the index, a plugin that can't be scanned says why
+export async function scanRepo(repo: { url: string; name: string; index: { plugins: Record<string, IndexPlugin> } }, signal: AbortSignal, onProgress: (done: number, total: number) => void, onSkip: (id: string, error: unknown) => void) {
 	const entries = Object.entries(repo.index.plugins)
 	const plugins: PluginScan[] = []
 	const ownHost = hostOf(repo.url)
 	let next = 0
-	let done = 0
 
 	const scanOne = async ([id, plugin]: [string, IndexPlugin]) => {
 		const version = plugin.channels?.latest ?? Object.values(plugin.channels ?? {})[0] ?? ''
 		const build = plugin.versions?.[version]
 		const result: PluginScan = { id, name: plugin.name || id, version, findings: [] }
-		if (!build?.url || !/^https:\/\//.test(build.url)) {
+		if (!build?.url?.startsWith('https://')) {
 			result.skipped = 'No download address in the index'
 			return result
 		}
-		try {
-			result.findings = scanArchive(await download(build.url), { id, size: build.size, ownHost })
-		} catch (e) {
-			result.skipped = (e as { name?: string } | null)?.name === 'AbortError' ? 'Download timed out' : ((e as { message?: string } | null)?.message ?? String(e)).split('\n')[0]
-			onSkip(id, e)
+		const key = build.sha256 && [ownHost, id, build.size, build.sha256].join(':')
+		const hit = key ? cache.get(key) : undefined
+		if (hit && Date.now() - hit.at < CACHE_TTL) {
+			result.findings = [...hit.findings]
+		} else {
+			try {
+				result.findings = scanArchive(await download(build.url, signal), { id, size: build.size, ownHost })
+				if (key) cache.set(key, { at: Date.now(), findings: [...result.findings] })
+			} catch (e) {
+				result.skipped = (e as Error).message.split('\n')[0]
+				if (!signal.aborted) onSkip(id, e)
+			}
 		}
-		if (/^(valenced|revenge)\./.test(id) && !/(^|\.)valenced\.app$/.test(ownHost)) result.findings.push({ severity: 'medium', reason: "Uses an id that looks like one of Valenced's own plugins", label: 'Id mimics a Valenced plugin' })
+		if (/^(valenced|revenge)\./.test(id) && !ownHost.endsWith('valenced.app')) result.findings.push({ severity: 'medium', reason: 'Id mimics a Valenced plugin' })
 		return result
 	}
 
 	await Promise.all(
 		Array.from({ length: PARALLEL }, async () => {
-			while (next < entries.length) {
+			while (next < entries.length && !signal.aborted) {
 				plugins.push(await scanOne(entries[next++]))
-				onProgress(++done, entries.length)
+				onProgress(plugins.length, entries.length)
 			}
 		}),
 	)
+	if (signal.aborted) throw aborted('Scan cancelled')
 
 	plugins.sort((a, b) => a.name.localeCompare(b.name))
 	const result: RepoScan = { url: repo.url, name: repo.name, at: Date.now(), plugins, verdict: verdictOf(plugins) }

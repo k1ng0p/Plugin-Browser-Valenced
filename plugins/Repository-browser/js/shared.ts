@@ -193,8 +193,8 @@ export const setDiscordVersion = (version?: string) => {
 	if (version) discordVersion = version
 }
 
-// logs get copied around, the last line says which tool and version wrote them, with the device it ran on just above, so the device line leaves the version out
-export const signature = () => `-# Logged by k1ng_op's Repository Browser${selfVersion ? ` v${selfVersion}` : ''}`
+// the last line of every log says which version wrote it
+const signature = () => `-# Logged by k1ng_op's Repository Browser${selfVersion ? ` v${selfVersion}` : ''}`
 
 // Android reports its API level (33), not the version people know (13)
 const ANDROID_VERSIONS: Record<number, string> = { 28: '9', 29: '10', 30: '11', 31: '12', 32: '12L', 33: '13', 34: '14', 35: '15', 36: '16' }
@@ -208,29 +208,26 @@ function platformName() {
 	return `${OS === 'ios' ? 'iOS' : OS} ${Version}`
 }
 
-function environment() {
-	return `${platformName()} | Discord ${discordVersion || 'unknown version'}`
-}
-
-export const logText = (lines: (string | false | undefined)[]) => [...lines.filter((line): line is string => typeof line === 'string'), environment(), signature()].join('\n')
+export const logText = (lines: (string | false | undefined)[]) =>
+	[...lines.filter((line): line is string => typeof line === 'string'), `${platformName()} | Discord ${discordVersion || 'unknown version'}`, signature()].join('\n')
 
 type Problem = { at: number; context: string; message: string; summary: string; lines: string[]; count: number }
 
 const MAX_PROBLEMS = 20
-// a problem that stopped happening fades out, one that keeps happening is renewed by every attempt
+// a problem that stops happening fades out, one that keeps happening is renewed
 const PROBLEM_TTL = 30 * 60 * 1000
 const problems: Problem[] = []
 
-// the host refused the action (bad artifact, missing dependency), nothing is broken in this plugin
+// the host refused the action, nothing is wrong in this plugin
 const fromHost = (error: unknown) => !!(error as { host?: boolean } | null)?.host
 
-// being offline, slow or answered with a broken file is the repository's side, so it is shown there and not reported as a plugin error
+// offline, slow or broken replies are the repository's problem, not a plugin error
 function expected(error: unknown) {
 	const e = error as { name?: string; permanent?: boolean } | null
 	return e?.name === 'AbortError' || !!e?.permanent || error instanceof SyntaxError || /network request failed|failed to fetch/i.test(errorMessage(error))
 }
 
-// what else is known about the failure, so a copied log can be understood without the device
+// extra context so a copied log makes sense without the device
 function detailLines(error: unknown, info: string[]) {
 	const e = error as { code?: unknown; stack?: string } | null
 	const raw = errorMessage(error).split('\n')[0]
@@ -238,19 +235,21 @@ function detailLines(error: unknown, info: string[]) {
 	const stack = fromHost(error) ? undefined : e?.stack?.split('\n').slice(1, 4).map(line => line.trim()).join(' <- ')
 	return [
 		...info,
-		(typeof e?.code === 'string' || typeof e?.code === 'number') && `Code: ${e.code}`,
+		e?.code !== undefined && `Code: ${e.code}`,
 		meaning !== raw && `Meaning: ${meaning}`,
 		stack && `Stack: ${stack}`,
 	].filter((line): line is string => typeof line === 'string' && line !== '')
 }
 
+function dropWhere(test: (item: Problem) => boolean) {
+	for (let index = problems.length - 1; index >= 0; index--) if (test(problems[index])) problems.splice(index, 1)
+}
+
 export function recentProblems() {
-	const cutoff = Date.now() - PROBLEM_TTL
-	for (let index = problems.length - 1; index >= 0; index--) if (problems[index].at < cutoff) problems.splice(index, 1)
+	dropWhere(item => item.at < Date.now() - PROBLEM_TTL)
 	return problems
 }
 
-// returns true the first time a problem is seen, repeats only raise its counter
 function record(context: string, error: unknown, info: string[]) {
 	const message = errorMessage(error)
 	const known = problems.find(item => item.context === context && item.message === message)
@@ -264,33 +263,26 @@ function record(context: string, error: unknown, info: string[]) {
 	return true
 }
 
-// failures that are expected now and then (offline, timeouts) are kept for diagnostics only
+// kept for diagnostics only, never reported
 export const logProblem = (context: string, error: unknown, info: string[] = []) => void record(context, error, info)
 
-export function clearProblems(context: string) {
-	for (let index = problems.length - 1; index >= 0; index--) if (problems[index].context === context) problems.splice(index, 1)
-}
+export const dropProblems = (stale: (context: string) => boolean) => dropWhere(item => stale(item.context))
 
-export function dropProblems(stale: (context: string) => boolean) {
-	for (let index = problems.length - 1; index >= 0; index--) if (stale(problems[index].context)) problems.splice(index, 1)
-}
+export const clearProblems = (context: string) => dropProblems(other => other === context)
 
-// the error that goes to plugin.reportError carries what was being done and the version that logged it
 export function watermark(error: unknown, context = '', info: string[] = []) {
 	const wrapped = new Error([`${context ? `${context}: ` : ''}${errorMessage(error)}`, ...detailLines(error, info), signature()].join('\n'))
 	if (error instanceof Error && error.stack) wrapped.stack = error.stack
 	return wrapped
 }
 
-// every error comes with what was being done, and one that keeps coming back is only sent on once
 export function reportError(error: unknown, context = '', info: string[] = []) {
 	if (!record(context, error, info) || fromHost(error) || expected(error)) return
 	reporter(watermark(error, context, info))
 }
 
-export function problemsText() {
+function problemsText() {
 	const items = recentProblems()
-	if (!items.length) return ''
 	return logText([
 		`Recent problems (${items.length})`,
 		'',
@@ -311,7 +303,7 @@ export function showProblems() {
 	modal('Recent problems', text, Button => [
 		h(Button, { key: 'ok', text: 'OK', variant: 'secondary' }),
 		items.length ? h(Button, { key: 'copy', text: 'Copy log', variant: 'tertiary', onPress: () => copyToClipboard(problemsText()) }) : null,
-	].filter(Boolean))
+	])
 }
 
 export function copyToClipboard(text: string) {
@@ -409,7 +401,6 @@ const WARNING_KEY = 'plugin-browser-unofficial'
 
 type WarningProps = { title: string; text: string; confirmText: string; destructive?: boolean; cancelable: boolean; onResult: (accepted: boolean) => void }
 
-// the confirm button stays off for a few seconds so the warning gets read
 function WarningAlert({ title, text, confirmText, destructive, cancelable, onResult }: WarningProps) {
 	const { AlertModal, AlertActionButton, Text } = Design
 	const [left, setLeft] = React.useState(WARNING_SECONDS)
@@ -438,7 +429,7 @@ function WarningAlert({ title, text, confirmText, destructive, cancelable, onRes
 
 type WarningOptions = Omit<WarningProps, 'onResult'>
 
-// the dialog can only be closed with its buttons, tapping outside it or going back does nothing
+// only its buttons close it
 export const warnUnofficial = (options: WarningOptions) =>
 	new Promise<boolean>(done => AlertActionCreators.openAlert(WARNING_KEY, h(WarningAlert, { ...options, onResult: done }), () => done(false), { dismissable: false }))
 

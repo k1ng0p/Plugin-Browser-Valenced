@@ -639,7 +639,6 @@ export function restore() {
 
 let warningShown = false
 
-// the first time the browser is opened, the person has to read that everything in it is unofficial
 export async function showFirstRunWarning() {
 	if (warningShown) return
 	warningShown = true
@@ -651,7 +650,7 @@ export async function showFirstRunWarning() {
 		confirmText: 'OK',
 		cancelable: false,
 	})
-	// closed by something other than its button (all alerts dismissed), so it has not been read
+	// closed some other way, so it hasn't been read
 	if (accepted) await save({ warned: true })
 	else warningShown = false
 }
