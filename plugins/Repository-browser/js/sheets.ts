@@ -218,7 +218,7 @@ export function WarningNote({ text }: { text: string }) {
 	)
 }
 
-function RefPage({ children, empty }: { children?: any; empty: string }) {
+export function RefPage({ children, empty }: { children?: any; empty: string }) {
 	const { Text } = Design
 	const { bottom } = ReactNativeSafeAreaContext.useSafeAreaInsets()
 

@@ -4,7 +4,8 @@ import { ReactNativeSafeAreaContext } from '@valenced/externals/react-native-saf
 import { ReactNavigationNative } from '@valenced/externals/react-navigation'
 import { React, ReactNative } from '@valenced/react'
 import { CountsCard, NoteBanner, Notice, PluginCard, TipNote, RepoAvatar, RepoBadges } from './components'
-import { lastScan, scanRepository, showScan, VERDICTS } from './scan'
+import { lastScan, scanRepository, VERDICTS } from './scan'
+import { openScanSheet } from './scan-sheet'
 import { openBulkInstallSheet, openAboutSheet, openFeedSheet, openKindsSheet, openRepoInfoSheet, openBulkUninstallSheet, openPluginSheet } from './sheets'
 import type { CardUpdate } from './components'
 import {
@@ -657,7 +658,7 @@ function useBrowser() {
 		setScan({ url: repo.url, done: 0, total: 0 })
 		try {
 			const result = await scanRepository(repo, repoName(repo), controller.signal, (done, total) => setScan({ url: repo.url, done, total }))
-			if (result) showScan(result, () => runScan(repo))
+			if (result) openScanSheet(result, () => runScan(repo))
 		} finally {
 			setScan(null)
 		}
@@ -665,7 +666,7 @@ function useBrowser() {
 
 	const openScan = (repo: Repo) => {
 		const previous = lastScan(repo.url)
-		if (previous) showScan(previous, () => runScan(repo))
+		if (previous) openScanSheet(previous, () => runScan(repo))
 		else runScan(repo)
 	}
 

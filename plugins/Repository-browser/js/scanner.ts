@@ -1,7 +1,7 @@
 import { strFromU8, unzipSync } from 'fflate'
 
 export type Severity = 'high' | 'medium' | 'low'
-export type Finding = { severity: Severity; reason: string; evidence?: string }
+export type Finding = { severity: Severity; reason: string; evidence?: string; where?: string; code?: string }
 export type PluginScan = { id: string; name: string; version: string; findings: Finding[]; skipped?: string }
 export type Verdict = 'clean' | 'suspicious' | 'dangerous' | 'unknown'
 export type RepoScan = { url: string; source?: string; name: string; at: number; plugins: PluginScan[]; verdict: Verdict }
@@ -19,12 +19,13 @@ const DOWNLOAD_TIMEOUT = 20000
 
 const EXECUTABLE = /\.(exe|bat|cmd|sh|apk|scr|dll|vbs|ps1|msi)$/i
 const NATIVE = /\.(jar|dex|so)$/i
-const TRUSTED_HOST = /(^|\.)(discord\.com|discordapp\.com|discordapp\.net|discord\.gg|github\.com|githubusercontent\.com|github\.io|valenced\.app|gstatic\.com|googleapis\.com)$/i
+const TRUSTED_HOST = /(^|\.)(discord\.com|discordapp\.com|discordapp\.net|discord\.gg|github\.com|githubusercontent\.com|github\.io|valenced\.app|gstatic\.com|googleapis\.com|example\.(?:com|org|net))$/i
 const OBFUSCATED = /_0x[0-9a-f]{4,6}\b/g
-const URL_HOST = /https?:\/\/([a-z0-9.-]+)/gi
+const URL_HOST = /https?:\/\/((?:[a-z0-9-]+\.)+[a-z0-9-]+)/gi
 // a plugin whose index entry has not changed is not downloaded again for a while
 const cache = new Map<string, { at: number; findings: Finding[] }>()
-const READS_TOKEN = 'Reads login token'
+const TOKEN = 'Touches login token'
+const CLIPBOARD = 'Reads clipboard'
 
 const RULES: Rule[] = [
 	{ severity: 'high', reason: 'Discord webhook', test: /discord(?:app)?\.com\/api\/(?:v\d+\/)?webhooks\/\d+\/[\w-]+/i, evidence: () => 'Discord webhook address' },
@@ -33,7 +34,10 @@ const RULES: Rule[] = [
 	{ severity: 'high', reason: 'IP logger', test: /grabify\.link|iplogger\.(?:org|com|ru)|2no\.co|yip\.su|leancoding\.co|stopify\.co|joinmy\.site|catsnthings\.fun/i },
 	// character classes keep this plugin's own code from matching its own rule
 	{ severity: 'high', reason: 'Looks for stored logins', test: /Local[ ]Storage[\\/]+level[d]b|discord_desktop_cor[e]|Login[ ]Dat[a]/ },
-	{ severity: 'medium', reason: READS_TOKEN, test: /\bgetToken\s*\(/ },
+	{ severity: 'medium', reason: TOKEN, test: /\b(?:get|set)Token\s*\(|\bloginToken\s*\(|Token[M]anager|Authentication[S]tore/ },
+	{ severity: 'medium', reason: CLIPBOARD, test: /Clipboard\.getString/ },
+	{ severity: 'medium', reason: 'Decodes text while running', test: /\batob\s*\(/ },
+	{ severity: 'medium', reason: 'Link shortener', test: /\b(?:bit\.ly|tinyurl\.com|cutt\.ly|is\.gd|rb\.gy|shorturl\.at)\//i },
 	{ severity: 'medium', reason: 'Runs text as code', test: /\beval\s*\(|new\s+Function\s*\(/ },
 	{ severity: 'medium', reason: 'Raw IP address', test: /https?:\/\/(?:\d{1,3}\.){3}\d{1,3}/ },
 	{
@@ -43,22 +47,50 @@ const RULES: Rule[] = [
 	},
 ]
 
+const EXCERPT = 50
+
 const rank: Record<Severity, number> = { high: 0, medium: 1, low: 2 }
 
 export const serious = (plugin: PluginScan) => plugin.findings.filter(finding => finding.severity !== 'low').sort((a, b) => rank[a.severity] - rank[b.severity])
 
+// the places a flagged plugin talks to help judge it, so they are listed with its findings
+export const details = (plugin: PluginScan) => [...serious(plugin), ...plugin.findings.filter(finding => finding.reason.startsWith('Contacts:'))]
+
 export const flagged = (scan: RepoScan) => scan.plugins.filter(plugin => serious(plugin).length).sort((a, b) => rank[serious(a)[0].severity] - rank[serious(b)[0].severity])
 
-export function scanSource(source: string, ownHost: string) {
+function lineOf(source: string, index: number) {
+	let line = 1
+	for (let at = source.indexOf('\n'); at !== -1 && at < index; at = source.indexOf('\n', at + 1)) line++
+	return line
+}
+
+// the code around a match, with the match itself replaced by what is safe to show
+function excerpt(source: string, index: number, matched: string, shown: string) {
+	const end = index + matched.length
+	const code = `${source.slice(Math.max(0, index - EXCERPT), index)}${shown}${source.slice(end, end + EXCERPT)}`
+	return `${index > EXCERPT ? '...' : ''}${code.replace(/\s+/g, ' ').trim()}${end + EXCERPT < source.length ? '...' : ''}`
+}
+
+export function scanSource(source: string, ownHost: string, file = '') {
 	const findings: Finding[] = []
 	for (const rule of RULES) {
-		const match = source.match(rule.test)?.[0]
-		if (match) findings.push({ severity: rule.severity, reason: rule.reason, evidence: rule.evidence ? rule.evidence(match) : match.slice(0, 48) })
+		const match = rule.test.exec(source)
+		if (!match) continue
+		const shown = rule.evidence ? rule.evidence(match[0]) : match[0].slice(0, 48)
+		findings.push({ severity: rule.severity, reason: rule.reason, evidence: shown, where: file && `${file}:${lineOf(source, match.index)}`, code: excerpt(source, match.index, match[0], shown) })
 	}
-	if ((source.match(OBFUSCATED)?.length ?? 0) >= 20) findings.push({ severity: 'medium', reason: 'Obfuscated code' })
+	const scrambled = source.match(OBFUSCATED)?.length ?? 0
+	if (scrambled >= 20) findings.push({ severity: 'medium', reason: 'Obfuscated code', evidence: `${scrambled} scrambled names`, where: file })
 
-	const hosts = [...new Set([...source.matchAll(URL_HOST)].map(match => match[1].toLowerCase().replace(/\.$/, '')))].filter(host => host.includes('.') && host !== ownHost && !TRUSTED_HOST.test(host))
-	if (hosts.length && findings.some(finding => finding.reason === READS_TOKEN)) findings.push({ severity: 'high', reason: 'Token read + outside servers', evidence: hosts.slice(0, 3).join(', ') })
+	const hosts = [...new Set([...source.matchAll(URL_HOST)].map(match => match[1].toLowerCase().replace(/\.$/, '')))].filter(host => host !== ownHost && !TRUSTED_HOST.test(host))
+	const has = (reason: string) => findings.some(finding => finding.reason === reason)
+	const hidden = has('Obfuscated code') || has('Decodes text while running')
+	const combos: [boolean, string][] = [
+		[has(TOKEN), 'Token + outside servers'],
+		[has(CLIPBOARD), 'Clipboard + outside servers'],
+		[hidden, 'Hidden code + outside servers'],
+	]
+	for (const [applies, reason] of combos) if (applies && hosts.length) findings.push({ severity: 'high', reason, evidence: hosts.slice(0, 3).join(', ') })
 	if (hosts.length) findings.push({ severity: 'low', reason: `Contacts: ${hosts.slice(0, 6).join(', ')}${hosts.length > 6 ? ` and ${hosts.length - 6} more` : ''}` })
 	return findings
 }
@@ -89,7 +121,7 @@ export function scanArchive(bytes: Uint8Array, expected: { id: string; size?: nu
 	}
 
 	for (const [name, data] of Object.entries(files)) {
-		if (/\.(js|mjs|cjs)$/i.test(name)) findings.push(...scanSource(strFromU8(data), expected.ownHost))
+		if (/\.(js|mjs|cjs)$/i.test(name)) findings.push(...scanSource(strFromU8(data), expected.ownHost, name))
 	}
 	return findings
 }

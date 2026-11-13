@@ -1,6 +1,6 @@
 import { fetchRepo, listings } from './data'
-import { flagged, scanRepo, serious } from './scanner'
-import { ago, confirm, copyToClipboard, fail, formatBytes, h, logProblem, logText, modal, slash } from './shared'
+import { details, flagged, scanRepo, serious } from './scanner'
+import { confirm, fail, formatBytes, logProblem, logText, slash } from './shared'
 import type { Finding, RepoScan, Verdict } from './scanner'
 import type { Repo } from './shared'
 
@@ -14,10 +14,10 @@ export const VERDICTS: Record<Verdict, string> = {
 	unknown: 'Could not be scanned',
 }
 
-const finding = ({ severity, reason, evidence }: Finding) => `[${severity.toUpperCase()}] ${reason}${evidence ? ` (${evidence})` : ''}`
+export const finding = ({ severity, reason, evidence }: Finding) => `[${severity.toUpperCase()}] ${reason}${evidence ? ` (${evidence})` : ''}`
 
 // no "1." or "- " at the start of a line, Discord turns those into one long list
-function scanReport(scan: RepoScan) {
+export function scanReport(scan: RepoScan) {
 	const bad = flagged(scan)
 	const scanned = scan.plugins.filter(plugin => !plugin.skipped).length
 	const found = bad.flatMap(serious)
@@ -34,35 +34,9 @@ function scanReport(scan: RepoScan) {
 	for (const [index, plugin] of bad.entries()) {
 		if (index) lines.push('')
 		lines.push(`${index + 1}) ${plugin.name} ${plugin.version} (${plugin.id}) - ${serious(plugin)[0].severity.toUpperCase()}`)
-		for (const item of serious(plugin)) lines.push(`\u2022 ${finding(item)}`)
+		for (const item of details(plugin)) lines.push(`\u2022 ${finding(item)}`)
 	}
 	return logText([...lines, '', 'Basic scan, it can miss threats.', ''])
-}
-
-function summary(scan: RepoScan) {
-	const scanned = scan.plugins.filter(plugin => !plugin.skipped).length
-	const bad = flagged(scan)
-	const shown = bad.slice(0, 6)
-	const parts = [
-		scan.verdict === 'unknown'
-			? 'No plugin could be downloaded and checked. Try again later.'
-			: bad.length
-				? `${bad.length} of ${scanned} plugins ${scan.verdict === 'dangerous' ? 'have serious red flags' : 'look suspicious'}.`
-				: `No red flags found in ${scanned} plugins.`,
-		...shown.map((plugin, index) => `${index + 1}. ${plugin.name} ${plugin.version}\n${serious(plugin).map(item => `- ${finding(item)}`).join('\n')}`),
-	]
-	if (bad.length > shown.length) parts.push(`And ${bad.length - shown.length} more. Copy the logs to see everything.`)
-	if (scanned < scan.plugins.length && scan.verdict !== 'unknown') parts.push(`${scan.plugins.length - scanned} could not be scanned.`)
-	parts.push('This is a basic check of the plugin code. It can miss threats, so it does not prove a plugin is safe.')
-	return parts.join('\n\n')
-}
-
-export function showScan(scan: RepoScan, again: () => void) {
-	modal(`${VERDICTS[scan.verdict]} \u2022 ${scan.name}`, `${summary(scan)}\n\nScanned ${ago(scan.at)}`, Button => [
-		h(Button, { key: 'ok', text: 'OK', variant: 'secondary' }),
-		flagged(scan).length ? h(Button, { key: 'copy', text: 'Copy logs', variant: 'tertiary', onPress: () => copyToClipboard(scanReport(scan)) }) : null,
-		h(Button, { key: 'again', text: 'Scan again', variant: 'tertiary', onPress: again }),
-	])
 }
 
 // returns null when the person declines, cancels or the scan fails

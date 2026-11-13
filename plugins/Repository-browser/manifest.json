@@ -2,9 +2,9 @@
 	"format": 1,
 	"id": "k1ngop.repository-browser",
 	"name": "Plugin Browser",
-	"description": "Browse third-party repositories, see what they offer, and add them to Valenced.",
+	"description": "Browse third-party repositories, discover plugins, and add sources directly through Discord. Includes optional whole-repository security scanning for suspicious code.",
 	"author": "k1ng_op <641266820187160576> (https://github.com/k1ng0p \"GitHub\")",
-	"version": "1.6.5",
+	"version": "1.6.7",
 	"icon": "ic_browse_channel",
 	"dependencies": {
 		"valenced.api": {
