@@ -4,7 +4,7 @@ export type Severity = 'high' | 'medium' | 'low'
 export type Finding = { severity: Severity; reason: string; evidence?: string; where?: string; code?: string }
 export type PluginScan = { id: string; name: string; version: string; findings: Finding[]; skipped?: string }
 export type Verdict = 'clean' | 'suspicious' | 'dangerous' | 'unknown'
-export type RepoScan = { url: string; source?: string; name: string; at: number; plugins: PluginScan[]; verdict: Verdict }
+export type RepoScan = { url: string; source?: string; name: string; at: number; plugins: PluginScan[]; verdict: Verdict; error?: string }
 
 type Rule = { severity: Severity; reason: string; test: RegExp; evidence?: (match: string) => string }
 type IndexPlugin = { name?: string; channels?: Record<string, string>; versions?: Record<string, { url?: string; size?: number; sha256?: string }> }

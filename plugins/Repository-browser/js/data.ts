@@ -4,7 +4,7 @@ import { Stores, withStoreName } from '@valenced/discord/flux'
 import { filters, lookupModule } from '@valenced/modules/finders'
 import { ReactNative } from '@valenced/react'
 import { available, providedIds, refreshAvailable } from './valenced'
-import { AVATAR_TTL, BUILT_IN_REPO, DAY, KINDS, MAX_REQUESTS, RECHECK_AFTER_FOCUS, REMOTE_LIST, asObject, clearProblems, dropProblems, errorMessage, hostOf, indexUrl, isRemote, kindOf, reportError, setHaptics, slash, sleep, UNOFFICIAL_WARNING, warnUnofficial } from './shared'
+import { ALERT_MODES, AVATAR_TTL, BUILT_IN_REPO, OWNER_REPO, DAY, KINDS, MAX_REQUESTS, RECHECK_AFTER_FOCUS, REMOTE_LIST, asObject, clearProblems, dropProblems, errorMessage, hostOf, indexUrl, isRemote, kindOf, reportError, setHaptics, slash, sleep, UNOFFICIAL_WARNING, warnUnofficial } from './shared'
 import type { AlertMode, ListedPlugin, Listing, Note, PluginKind, Repo } from './shared'
 
 export type SeenEntry = {
@@ -25,6 +25,9 @@ type StoreData = {
 	newRepos: Record<string, number>
 	updatesSeen: Record<string, Record<string, number>> | null
 	alerts: Record<string, AlertMode>
+	alertDefault?: AlertMode
+	pinned: string[]
+	hidden: string[]
 	muted: Record<string, PluginKind[]>
 	haptics?: boolean
 	compact?: boolean
@@ -55,6 +58,8 @@ async function whenLoaded() {
 	if (store.loaded === false) await store.get?.()
 }
 
+const strings = (value: unknown): string[] => (Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [])
+
 export function readStore(): StoreData {
 	const raw = asObject(store.cache)
 	return {
@@ -66,6 +71,9 @@ export function readStore(): StoreData {
 		newRepos: asObject(raw.newRepos),
 		updatesSeen: raw.updatesSeen && typeof raw.updatesSeen === 'object' ? raw.updatesSeen : null,
 		alerts: asObject(raw.alerts),
+		alertDefault: raw.alertDefault in ALERT_MODES ? raw.alertDefault : undefined,
+		pinned: strings(raw.pinned),
+		hidden: strings(raw.hidden),
 		muted: asObject(raw.muted),
 		haptics: typeof raw.haptics === 'boolean' ? raw.haptics : undefined,
 		compact: typeof raw.compact === 'boolean' ? raw.compact : undefined,
@@ -89,6 +97,13 @@ export function update(change: (data: StoreData) => Partial<StoreData>) {
 export const save = (patch: Partial<StoreData>) => update(() => patch)
 
 export const setAlertMode = (url: string, mode: AlertMode) => update(data => ({ alerts: { ...data.alerts, [url]: mode } }))
+
+export const clearAlertMode = (url: string) => update(data => ({ alerts: Object.fromEntries(Object.entries(data.alerts).filter(([key]) => key !== url)) }))
+
+export const setAlertDefault = (mode: AlertMode) => save({ alertDefault: mode })
+
+// a repository's own setting wins over the default for all repositories
+export const modeOf = (data: Partial<StoreData> | undefined, url: string): AlertMode => data?.alerts?.[url] ?? data?.alertDefault ?? 'news'
 
 export const setKindMuted = (url: string, kind: PluginKind, muted: boolean) =>
 	update(data => {
@@ -126,12 +141,11 @@ function kindOfId(repo: Repo, id: string): PluginKind {
 
 export function pendingByKind(data: Partial<StoreData> | undefined, catalog: Repo[]) {
 	const seen = asObject(data?.seen)
-	const alerts = asObject(data?.alerts)
 	const muted = asObject(data?.muted)
 	const counts: Partial<Record<PluginKind, number>> = {}
 
 	for (const repo of catalog) {
-		const mode: AlertMode = alerts[repo.url] ?? 'news'
+		const mode = modeOf(data, repo.url)
 		const entry = asObject(seen[repo.url])
 		const off: PluginKind[] = Array.isArray(muted[repo.url]) ? muted[repo.url] : []
 		const add = (id: string) => {
@@ -149,14 +163,13 @@ export function pendingByKind(data: Partial<StoreData> | undefined, catalog: Rep
 
 export function unreadCount(data: Partial<StoreData> | undefined, catalog: Repo[]) {
 	const seen = asObject(data?.seen)
-	const alerts = asObject(data?.alerts)
 	const muted = asObject(data?.muted)
 	const updatesSeen = asObject(data?.updatesSeen)
 	const ack = ackOf(data)
 
 	let total = 0
 	for (const repo of catalog) {
-		const mode: AlertMode = alerts[repo.url] ?? 'news'
+		const mode = modeOf(data, repo.url)
 		const off: PluginKind[] = Array.isArray(muted[repo.url]) ? muted[repo.url] : []
 		// a muted kind can only be told apart once the repository's listing is loaded
 		const audible = (id: string) => !off.length || (listings.has(repo.url) && !off.includes(kindOfId(repo, id)))
@@ -276,8 +289,37 @@ export function openUserProfile(userId: string) {
 
 export const catalog: Repo[] = []
 
-// the built in repository goes last, and a copy in the remote list gives way to it
-const withBuiltIn = (list: Repo[]) => [...list.filter(repo => slash(repo.url) !== BUILT_IN_REPO.url), BUILT_IN_REPO]
+// the remote list as it came in, the order and visibility on screen are worked out from it
+let listed: Repo[] = []
+
+// the author's repository comes first, then pinned ones, then the rest, Valenced's own goes last
+// the first and the last place are fixed, so neither of those two can be pinned or hidden
+const FIXED = [OWNER_REPO.url, BUILT_IN_REPO.url]
+
+function arrangeCatalog(data: Pick<StoreData, 'pinned' | 'hidden'> = readStore()) {
+	const urlOf = (repo: Repo) => slash(repo.url)
+	const others = listed.filter(repo => !FIXED.includes(urlOf(repo)))
+	const movable = data.pinned.filter(url => !FIXED.includes(url))
+	const pinned = movable.flatMap(url => others.filter(repo => urlOf(repo) === url))
+	const rest = others.filter(repo => !movable.includes(urlOf(repo)))
+	catalog.splice(0, catalog.length, OWNER_REPO, ...[...pinned, ...rest].filter(repo => !data.hidden.includes(urlOf(repo))), BUILT_IN_REPO)
+}
+
+const toggled = (list: string[], url: string) => (list.includes(url) ? list.filter(item => item !== url) : [...list, url])
+
+export const togglePinned = (url: string) =>
+	update(data => {
+		const pinned = toggled(data.pinned, url)
+		arrangeCatalog({ pinned, hidden: data.hidden })
+		return { pinned }
+	})
+
+export const toggleHidden = (url: string) =>
+	update(data => {
+		const hidden = toggled(data.hidden, url)
+		arrangeCatalog({ pinned: data.pinned, hidden })
+		return { hidden }
+	})
 export const listings = new Map<string, Listing>()
 
 const pending = new Map<string, Promise<void>>()
@@ -509,7 +551,8 @@ async function refreshCatalog() {
 	if (!fetched) return
 	const next = fetched.repos
 
-	catalog.splice(0, catalog.length, ...withBuiltIn(next))
+	listed = next
+	arrangeCatalog()
 	await update(data => {
 		const first = !data.known
 		const known = new Set(data.known ?? next.map(repo => repo.url))
@@ -629,7 +672,8 @@ export function restore() {
 	ready = whenLoaded().then(() => {
 		const data = readStore()
 		setHaptics(data.haptics !== false)
-		catalog.splice(0, catalog.length, ...withBuiltIn(parseRepoList(data.remote?.repos) ?? []))
+		listed = parseRepoList(data.remote?.repos) ?? []
+		arrangeCatalog(data)
 		for (const [url, snap] of Object.entries<any>(data.snaps)) {
 			if (catalog.some(repo => repo.url === url)) listings.set(url, { ...cleanListing(snap?.data, url), saved: snap?.at })
 		}

@@ -7,11 +7,11 @@ import { ReactNativeSafeAreaContext } from '@valenced/externals/react-native-saf
 import { parsePluginContributor } from '@valenced/plugins/utils'
 import { React, ReactNative } from '@valenced/react'
 import { lookupGeneratedIconComponent } from '@valenced/utils/discord'
-import { catalog, dependentsOf, dismiss, dismissAll, isLegacy, listings, missingDependencies, openUserProfile, parseAuthor, setAlertMode, setKindMuted, useStore } from './data'
+import { catalog, dependentsOf, dismiss, dismissAll, isLegacy, listings, missingDependencies, openUserProfile, parseAuthor, setAlertDefault, setAlertMode, setKindMuted, clearAlertMode, toggleHidden, togglePinned, useStore } from './data'
 import { addRepo, available, blocked, checkInstall, install, openPluginSettings, pendingReload, readState, setHeld, toggle, uninstall, updatePlugins } from './valenced'
 import type { BulkItem } from './valenced'
 import type { ValencedState } from './valenced'
-import { ALERT_MODES, ICON_INDENT, OWNER_ID, tap, SOURCE_URL, ago, asset, isBuiltIn, compatibilityWarning, copyToClipboard, fail, formatBytes, h, icon, iconSlot, native, reportError, slash } from './shared'
+import { ALERT_DETAILS, ALERT_MODES, ICON_INDENT, OWNER_ID, tap, SOURCE_URL, ago, asset, hostOf, isBuiltIn, compatibilityWarning, copyToClipboard, fail, formatBytes, h, icon, iconSlot, native, reportError, slash } from './shared'
 import type { AlertMode, ListedPlugin, PluginKind, PluginRef, Repo, RepoListing } from './shared'
 
 const PLUGIN_SHEET = 'plugin-browser-plugin-sheet'
@@ -23,6 +23,9 @@ const REPO_INFO_SHEET = 'plugin-browser-repo-info'
 const KINDS_SHEET = 'plugin-browser-repo-kinds'
 const FEED_SHEET = 'plugin-browser-feed'
 const ABOUT_SHEET = 'plugin-browser-about'
+const ALERT_DEFAULT_SHEET = 'plugin-browser-alert-default'
+const REPO_ACTIONS_SHEET = 'plugin-browser-repo-actions'
+const HIDDEN_SHEET = 'plugin-browser-hidden-repos'
 
 const MAX_GROWING_TABS = 3
 const MAX_SHOWN_ENTRIES = 5
@@ -394,12 +397,38 @@ function RepoPickerSheet({ id, name, repo, onSelect }: RepoPickerProps) {
 	)
 }
 
-type RepoInfoProps = { repo: Repo; name: string; updated?: string; note?: string; kinds: { id: PluginKind; label: string }[]; mode: AlertMode; muted: PluginKind[] }
+type RepoInfoProps = { repo: Repo; name: string; updated?: string; note?: string; kinds: { id: PluginKind; label: string }[]; mode: AlertMode; override: boolean; fallback: AlertMode; muted: PluginKind[] }
 
-function RepoInfoSheet({ repo, name, updated, note, kinds, mode, muted }: RepoInfoProps) {
+const alertRow = (value: AlertMode | 'default', label: string) =>
+	h(Design.TableRadioRow, { key: value, label, value, icon: icon(ALERT_DETAILS[value].icon), subLabel: ALERT_DETAILS[value].description })
+
+type AlertProps = { repo: Repo; mode: AlertMode; override: boolean; fallback: AlertMode }
+
+// the repository's own notification setting, "Use default" takes it back to the one in the settings
+function AlertRadios({ repo, mode, override, fallback }: AlertProps) {
+	const { TableRadioGroup } = Design
+	const [selected, setSelected] = React.useState<AlertMode | 'default'>(override ? mode : 'default')
+
+	return h(
+		TableRadioGroup,
+		{
+			title: 'Notifications',
+			description: 'Choose what this repository adds to the red count. This replaces the default from the settings.',
+			value: selected,
+			onChange: (value: AlertMode | 'default') => {
+				setSelected(value)
+				if (value === 'default') clearAlertMode(repo.url)
+				else setAlertMode(repo.url, value)
+			},
+		},
+		alertRow('default', `Use default (${ALERT_MODES[fallback]})`),
+		...(Object.entries(ALERT_MODES) as [AlertMode, string][]).map(([value, label]) => alertRow(value, label)),
+	)
+}
+
+function RepoInfoSheet({ repo, name, updated, note, kinds, mode, override, fallback, muted }: RepoInfoProps) {
 	const { Linking } = ReactNative
-	const { BottomSheet, BottomSheetTitleHeader, Stack, TableRadioGroup, TableRadioRow, TableRow, TableRowGroup, TableSwitchRow } = Design
-	const [selected, setSelected] = React.useState(mode)
+	const { BottomSheet, BottomSheetTitleHeader, Stack, TableRow, TableRowGroup, TableSwitchRow } = Design
 	const [off, setOff] = React.useState(muted)
 	const link = repo.source ?? repo.url
 
@@ -417,19 +446,7 @@ function RepoInfoSheet({ repo, name, updated, note, kinds, mode, muted }: RepoIn
 				{ title: repo.source ? 'Source' : 'Website', description: [updated, note].filter(Boolean).join('\n') || undefined },
 				h(TableRow, { label: repo.source ? 'Source' : 'Website', subLabel: link, icon: icon(repo.source ? 'PaperIcon' : 'GlobeEarthIcon'), arrow: true, onPress: () => Linking.openURL(link) }),
 			),
-			h(
-				TableRadioGroup,
-				{
-					title: 'Notifications',
-					description: 'Choose what this repository adds to the red count on the settings row.',
-					value: selected,
-					onChange: (value: AlertMode) => {
-						setSelected(value)
-						setAlertMode(repo.url, value)
-					},
-				},
-				...(Object.entries(ALERT_MODES) as [AlertMode, (typeof ALERT_MODES)[AlertMode]][]).map(([value, { button }]) => h(TableRadioRow, { key: value, label: button, value })),
-			),
+			h(AlertRadios, { repo, mode, override, fallback }),
 			kinds.length > 1
 				? h(
 						TableRowGroup,
@@ -671,6 +688,104 @@ export const openAboutSheet = (props: AboutProps) => ActionSheetActionCreators.o
 export const openFeedSheet = (props: FeedProps) => ActionSheetActionCreators.openLazy(Promise.resolve({ default: FeedSheet }), FEED_SHEET, props)
 
 export const openKindsSheet = (props: KindsProps) => ActionSheetActionCreators.openLazy(Promise.resolve({ default: KindsSheet }), KINDS_SHEET, props)
+
+function AlertDefaultSheet({ mode }: { mode: AlertMode }) {
+	const { BottomSheet, BottomSheetTitleHeader, Stack, TableRadioGroup } = Design
+	const [selected, setSelected] = React.useState(mode)
+
+	return h(
+		BottomSheet,
+		{ scrollable: true, header: h(BottomSheetTitleHeader, { title: 'Notifications' }) },
+		h(
+			RefPage,
+			{ empty: '' },
+			h(
+				Stack,
+				{ spacing: 16 },
+				h(
+					TableRadioGroup,
+					{
+						description: 'Choose what shows in the red count for plugins, themes, fonts and the other kinds. A repository can replace this from its info sheet.',
+						value: selected,
+						onChange: (value: AlertMode) => {
+							setSelected(value)
+							setAlertDefault(value)
+						},
+					},
+					...(Object.entries(ALERT_MODES) as [AlertMode, string][]).map(([value, label]) => alertRow(value, label)),
+				),
+			),
+		),
+	)
+}
+
+type RepoActionsProps = AlertProps & { name: string; pinned: boolean; movable: boolean }
+
+function RepoActionsSheet({ repo, name, pinned, movable, mode, override, fallback }: RepoActionsProps) {
+	const { BottomSheet, BottomSheetTitleHeader, Stack, TableRow, TableRowGroup } = Design
+	const run = (change: (url: string) => Promise<unknown>, action: string) => {
+		tap()
+		ActionSheetActionCreators.hideActionSheet(REPO_ACTIONS_SHEET)
+		change(repo.url).catch(error => fail(error, action, [`Repository: ${repo.url}`]))
+	}
+	const copy = (text: string) => {
+		copyToClipboard(text)
+		tap()
+	}
+
+	return h(
+		BottomSheet,
+		{ scrollable: true, header: h(BottomSheetTitleHeader, { title: name }) },
+		h(
+			RefPage,
+			{ empty: '' },
+			h(
+				Stack,
+				{ spacing: 16 },
+				h(
+					TableRowGroup,
+					null,
+					movable ? h(TableRow, { label: pinned ? 'Unpin this repo' : 'Pin this repo', subLabel: pinned ? 'Back to its place in the list' : 'Keep it near the top of the list', icon: icon('PinIcon'), onPress: () => run(togglePinned, `${pinned ? 'unpin' : 'pin'} repository`) }) : null,
+					movable ? h(TableRow, { label: 'Hide this repo', subLabel: 'Bring it back from Hidden repositories in the settings', icon: icon('EyeSlashIcon'), onPress: () => run(toggleHidden, 'hide repository') }) : null,
+					h(TableRow, { label: 'Copy repo link', subLabel: repo.url, icon: icon('LinkIcon'), onPress: () => copy(repo.url) }),
+					repo.source ? h(TableRow, { label: 'Copy source link', subLabel: repo.source, icon: icon('LinkIcon'), onPress: () => copy(repo.source as string) }) : null,
+				),
+				h(AlertRadios, { repo, mode, override, fallback }),
+			),
+		),
+	)
+}
+
+function HiddenSheet() {
+	const { BottomSheet, BottomSheetTitleHeader, Stack, TableRow, TableRowGroup, Text } = Design
+	const hidden = useStore()?.hidden ?? []
+
+	return h(
+		BottomSheet,
+		{ scrollable: true, header: h(BottomSheetTitleHeader, { title: 'Hidden repositories' }) },
+		h(
+			RefPage,
+			{ empty: '' },
+			h(
+				Stack,
+				{ spacing: 16 },
+				hidden.length
+					? h(
+							TableRowGroup,
+							null,
+							hidden.map(url => h(TableRow, { key: url, label: listings.get(url)?.name ?? hostOf(url), subLabel: url, trailing: h(Text, { variant: 'text-sm/semibold', color: 'text-link' }, 'Unhide'), onPress: () => toggleHidden(url).catch(error => fail(error, 'unhide repository', [`Repository: ${url}`])) })),
+						)
+					: h(Text, { variant: 'text-md/medium', color: 'text-muted' }, 'No hidden repositories.'),
+			),
+		),
+	)
+}
+
+export const openAlertDefaultSheet = (mode: AlertMode) => ActionSheetActionCreators.openLazy(Promise.resolve({ default: AlertDefaultSheet }), ALERT_DEFAULT_SHEET, { mode })
+
+export const openRepoActionsSheet = (props: RepoActionsProps) => ActionSheetActionCreators.openLazy(Promise.resolve({ default: RepoActionsSheet }), REPO_ACTIONS_SHEET, props)
+
+export const openHiddenSheet = () => ActionSheetActionCreators.openLazy(Promise.resolve({ default: HiddenSheet }), HIDDEN_SHEET, {})
 
 export const openRepoInfoSheet = (props: RepoInfoProps) => ActionSheetActionCreators.openLazy(Promise.resolve({ default: RepoInfoSheet }), REPO_INFO_SHEET, props)
 

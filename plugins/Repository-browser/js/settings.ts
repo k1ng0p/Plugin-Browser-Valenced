@@ -4,9 +4,9 @@ import { ReactNativeSafeAreaContext } from '@valenced/externals/react-native-saf
 import { ReactNavigationNative } from '@valenced/externals/react-navigation'
 import { React, ReactNative } from '@valenced/react'
 import { CountsCard, NoteBanner, Notice, PluginCard, TipNote, RepoAvatar, RepoBadges } from './components'
-import { lastScan, scanRepository, VERDICTS } from './scan'
-import { openScanSheet } from './scan-sheet'
-import { openBulkInstallSheet, openAboutSheet, openFeedSheet, openKindsSheet, openRepoInfoSheet, openBulkUninstallSheet, openPluginSheet } from './sheets'
+import { allVerdict, lastAllScan, lastScan, scanAllRepositories, scanRepository, VERDICTS } from './scan'
+import { openAllScanSheet, openScanSheet } from './scan-sheet'
+import { openAlertDefaultSheet, openHiddenSheet, openRepoActionsSheet, openBulkInstallSheet, openAboutSheet, openFeedSheet, openKindsSheet, openRepoInfoSheet, openBulkUninstallSheet, openPluginSheet } from './sheets'
 import type { CardUpdate } from './components'
 import {
 	catalog,
@@ -21,6 +21,7 @@ import {
 	missingDependencies,
 	openUserProfile,
 	parseAuthor,
+	modeOf,
 	pendingByKind,
 	readStore,
 	repoOwner,
@@ -33,7 +34,7 @@ import type { FeedItem, UpdateItem } from './sheets'
 import { THEMES_SETTINGS, THEME_SUPPORT, addRepo, available, blocked, checkInstall, install, installMany, openPluginSettings, forcedReload, pendingReload, reloadNames, putRepos, readState, toggle, toggleMany, uninstall, uninstallMany, updatePlugins } from './valenced'
 import type { BulkItem } from './valenced'
 import type { ValencedState } from './valenced'
-import { BUILT_IN_NOTE, OWNER_ID, native, SELF_ID, SOURCE_URL, confirm, setHaptics, tap, COMMUNITY_REPO, DAY, KINDS, PAGE_SIZE, SORTS, ago, asset, compatibilityWarning, fail, friendlyError, h, hostOf, icon, inform, isBuiltIn, kindOf, modal, recentProblems, reportError, showProblems, slash } from './shared'
+import { ALERT_MODES, BUILT_IN_NOTE, OWNER_ID, OWNER_REPO, native, SELF_ID, SOURCE_URL, confirm, setHaptics, tap, COMMUNITY_REPO, DAY, KINDS, PAGE_SIZE, SORTS, ago, asset, compatibilityWarning, fail, friendlyError, h, hostOf, icon, inform, isBuiltIn, kindOf, modal, recentProblems, reportError, showProblems, slash } from './shared'
 import type { AlertMode, AvailableUpdate, ListedPlugin, PluginKind, Repo, SortKey } from './shared'
 
 type Hit = { repo: Repo; plugin: ListedPlugin }
@@ -218,7 +219,8 @@ function useBrowser() {
 	const isEnabled = (id: string) => toggled.get(id)?.value ?? state?.enabled[id]?.enabled ?? false
 	const addedRepo = (url: string) => state?.repos.find(repo => !repo.internal && slash(repo.url) === slash(url)) ?? (isBuiltIn(url) ? { url, enabled: true } : undefined)
 	const repoName = (repo: Repo) => listings.get(repo.url)?.name ?? repo.url
-	const alertMode = (url: string): AlertMode => data?.alerts?.[url] ?? 'news'
+	const alertDefault: AlertMode = data?.alertDefault ?? 'news'
+	const isPinned = (repo: Repo) => repo.url !== OWNER_REPO.url && !repo.builtIn && !!data?.pinned?.includes(repo.url)
 	const pings = pendingByKind(data, catalog)
 
 	const openAbout = () =>
@@ -239,7 +241,7 @@ function useBrowser() {
 	const openRepoInfo = (repo: Repo) => {
 		const listing = listings.get(repo.url)
 		const updated = listing?.err ? friendlyError(listing.err) : listing?.at ? `${listing.stale ? 'Last updated' : 'Updated'} ${ago(listing.at)}` : undefined
-		openRepoInfoSheet({ repo, name: repoName(repo), updated, note: repo.builtIn ? BUILT_IN_NOTE : undefined, kinds: KINDS.filter(item => countOf(repo, item.id) > 0), mode: alertMode(repo.url), muted: data?.muted?.[repo.url] ?? [] })
+		openRepoInfoSheet({ repo, name: repoName(repo), updated, note: repo.builtIn ? BUILT_IN_NOTE : undefined, kinds: KINDS.filter(item => countOf(repo, item.id) > 0), mode: modeOf(data, repo.url), override: !!data?.alerts?.[repo.url], fallback: alertDefault, muted: data?.muted?.[repo.url] ?? [] })
 	}
 
 	const runUpdate = async (ids: string[]) => {
@@ -664,6 +666,29 @@ function useBrowser() {
 		}
 	}
 
+	const runScanAll = async () => {
+		if (scan) return
+		const controller = new AbortController()
+		stopScan.current = controller
+		setScan({ url: 'all', done: 0, total: catalog.length })
+		try {
+			const result = await scanAllRepositories(
+				catalog.map(repo => ({ repo, name: repoName(repo) })),
+				controller.signal,
+				(done, total) => setScan({ url: 'all', done, total }),
+			)
+			if (result) openAllScanSheet(result, runScanAll)
+		} finally {
+			setScan(null)
+		}
+	}
+
+	const openScanAll = () => {
+		const previous = lastAllScan()
+		if (previous) openAllScanSheet(previous, runScanAll)
+		else runScanAll()
+	}
+
 	const openScan = (repo: Repo) => {
 		const previous = lastScan(repo.url)
 		if (previous) openScanSheet(previous, () => runScan(repo))
@@ -676,6 +701,14 @@ function useBrowser() {
 		scan,
 		openScan,
 		cancelScan: () => stopScan.current?.abort(),
+		openScanAll,
+		alertDefault,
+		isPinned,
+		hiddenCount: data?.hidden?.length ?? 0,
+		openRepoActions: (repo: Repo) => {
+			const fixed = repo.url === OWNER_REPO.url || !!repo.builtIn
+			openRepoActionsSheet({ repo, name: repoName(repo), pinned: isPinned(repo), movable: !fixed, mode: modeOf(data, repo.url), override: !!data?.alerts?.[repo.url], fallback: alertDefault })
+		},
 		seen,
 		newRepos,
 		current,
@@ -736,9 +769,14 @@ function useBrowser() {
 const kindInfoOf = (tab: PluginKind) => KINDS.find(item => item.id === tab)!
 const pluralKind = (tab: PluginKind, count: number) => `${count} ${count === 1 ? kindInfoOf(tab).singular : kindInfoOf(tab).plural}`
 
+// a repository only adds what its notification setting asks for
+const listens = (mode: AlertMode, type: 'news' | 'updates') => mode === 'all' || mode === (type === 'news' ? 'news' : 'updates')
+
 function feedItems(b: Ctx, tab: PluginKind, type: 'news' | 'updates'): FeedItem[] {
-	const seen = readStore().seen
+	const store = readStore()
+	const seen = store.seen
 	return catalog
+		.filter(repo => listens(modeOf(store, repo.url), type))
 		.flatMap(repo => Object.entries<any>(seen[repo.url]?.[type] ?? {}).map(([id, value]) => ({ repo, id, value, at: type === 'news' ? (value as number) : value.at })))
 		.flatMap(item => {
 			const plugin = listings.get(item.repo.url)?.plugins.find(listed => listed.id === item.id)
@@ -756,6 +794,9 @@ function feedRow(b: Ctx, tab: PluginKind) {
 	const updated = feedItems(b, tab, 'updates').length
 	if (!waiting && !added && !updated) return null
 
+	// what the notification settings add to this row, a single setting is named, mixed ones are called custom
+	const modes = new Set(catalog.map(repo => modeOf(readStore(), repo.url)))
+	const setting = modes.size === 1 ? ALERT_MODES[[...modes][0]] : 'Custom per repository'
 	const newsTitle = `New ${kindInfoOf(tab).plural}`
 	const recent = added && updated ? 'New and recently updated' : added ? newsTitle : 'Recently updated'
 	return h(
@@ -763,7 +804,8 @@ function feedRow(b: Ctx, tab: PluginKind) {
 		{ key: 'feed' },
 		h(TableRow, {
 			label: waiting && (added || updated) ? "Updates and what's new" : waiting ? 'Updates available' : recent,
-			subLabel: [waiting ? `${waiting} to update` : '', added ? `${added} new` : '', updated ? `${updated} updated` : ''].filter(Boolean).join(' \u2022 '),
+			subLabel: [[waiting ? `${waiting} to update` : '', added ? `${added} new` : '', updated ? `${updated} updated` : ''].filter(Boolean).join(' \u2022 '), added || updated ? `Notifications: ${setting}` : ''].filter(Boolean).join('\n'),
+			subLabelLineClamp: 2,
 			icon: icon(waiting ? 'DownloadIcon' : 'BellIcon'),
 			arrow: true,
 			onPress: () =>
@@ -789,8 +831,21 @@ function updateItems(b: Ctx, tab: PluginKind): UpdateItem[] {
 	})
 }
 
-function repoRow(b: Ctx, repo: Repo, tab?: PluginKind) {
-	const { View } = ReactNative
+function scanAllRow(b: Ctx) {
+	const { TableRow } = Design
+	const busy = b.scan?.url === 'all'
+	const previous = lastAllScan()
+	return h(TableRow, {
+		label: busy ? `Scanning ${b.scan?.done}/${b.scan?.total} repositories, tap to cancel` : 'Scan all repositories',
+		subLabel: previous ? `${VERDICTS[allVerdict(previous)]} \u2022 ${ago(previous.at)}` : 'Checks every plugin in every listed repository. This takes time.',
+		icon: icon('ShieldIcon'),
+		arrow: !busy,
+		onPress: busy ? b.cancelScan : b.scan ? undefined : b.openScanAll,
+	})
+}
+
+function repoRow(b: Ctx, repo: Repo, tab?: PluginKind, edge?: { start: boolean; end: boolean }) {
+	const { Image, Pressable, View } = ReactNative
 	const { Button, TableRow, Text } = Design
 	const listing = listings.get(repo.url)
 	const failed = listing?.err || listing?.stale
@@ -825,20 +880,35 @@ function repoRow(b: Ctx, repo: Repo, tab?: PluginKind) {
 			)
 		: subLabel || undefined
 
-	return h(TableRow, {
-		key: repo.url,
-		icon: h(RepoAvatar, { repo, listing, epoch: b.epoch }),
-		label: b.addedRepo(repo.url)?.enabled ? h(Text, { variant: 'text-md/semibold', numberOfLines: 1, style: { color: '#4ADE80' } }, b.repoName(repo)) : b.repoName(repo),
-		subLabel: details,
-		labelLineClamp: 1,
-		subLabelLineClamp: lines,
-		trailing,
-		arrow: true,
-		onPress: () => {
-			dismissRepo(repo.url)
-			b.showRepo(repo)
+	const avatar = h(RepoAvatar, { repo, listing, epoch: b.epoch })
+	const pin = b.isPinned(repo) ? asset('PinIcon') : undefined
+
+	// TableRow has no long press, so the row sits inside a pressable that handles both presses
+	return h(
+		Pressable,
+		{
+			key: repo.url,
+			delayLongPress: 350,
+			onPress: () => {
+				dismissRepo(repo.url)
+				b.showRepo(repo)
+			},
+			onLongPress: () => {
+				tap()
+				b.openRepoActions(repo)
+			},
 		},
-	})
+		h(TableRow, {
+			icon: pin ? h(View, null, avatar, h(Image, { source: pin, style: { position: 'absolute', top: -4, left: -4, width: 14, height: 14 } })) : avatar,
+			label: b.addedRepo(repo.url)?.enabled ? h(Text, { variant: 'text-md/semibold', numberOfLines: 1, style: { color: '#4ADE80' } }, b.repoName(repo)) : b.repoName(repo),
+			subLabel: details,
+			labelLineClamp: 1,
+			subLabelLineClamp: lines,
+			trailing,
+			arrow: true,
+			...edge,
+		}),
+	)
 }
 
 function emptyList(b: Ctx) {
@@ -892,8 +962,13 @@ function MainPage(b: Ctx, tab: PluginKind) {
 	const shown = catalog.filter(hasKind)
 	const isNew = (repo: Repo) => (b.newRepos[repo.url] ? 1 : 0)
 	const sorted = sort === 'default' ? [...shown].sort((x, y) => isNew(y) - isNew(x)) : shown.sort((x, y) => b.repoRank(y) - b.repoRank(x) || b.repoName(x).localeCompare(b.repoName(y)))
-	// the built in repository stays at the end whatever the sort is
-	const repos = [...sorted.filter(repo => !repo.builtIn), ...sorted.filter(repo => repo.builtIn)]
+	// the author's repository is first, pinned ones follow, the built in one stays at the end
+	const repos = [
+		...sorted.filter(repo => repo.url === OWNER_REPO.url),
+		...sorted.filter(b.isPinned),
+		...sorted.filter(repo => repo.url !== OWNER_REPO.url && !repo.builtIn && !b.isPinned(repo)),
+		...sorted.filter(repo => repo.builtIn),
+	]
 
 	return [
 		reloadRow(b),
@@ -911,7 +986,7 @@ function MainPage(b: Ctx, tab: PluginKind) {
 		feedRow(b, tab),
 		catalog.length ? null : emptyList(b),
 		catalog.length && !repos.length ? h(Text, { key: 'nokind', variant: 'text-md/medium', color: 'text-muted' }, `No ${kindInfoOf(tab).plural} in the listed repositories yet.`) : null,
-		repos.length ? h(TableRowGroup, { key: 'all', title: 'Repositories' }, repos.map(repo => repoRow(b, repo, tab))) : null,
+		repos.length ? h(TableRowGroup, { key: 'all', title: 'Repositories' }, repos.map((repo, index) => repoRow(b, repo, tab, { start: index === 0, end: index === repos.length - 1 }))) : null,
 		recentProblems().length
 			? h(
 					TableRowGroup,
@@ -940,7 +1015,7 @@ function SearchPage(b: Ctx) {
 					b.moreButton(hits.length),
 				)
 			: null,
-		repos.length ? h(TableRowGroup, { key: 'repos', title: 'Repositories' }, repos.map(repo => repoRow(b, repo))) : null,
+		repos.length ? h(TableRowGroup, { key: 'repos', title: 'Repositories' }, repos.map((repo, index) => repoRow(b, repo, undefined, { start: index === 0, end: index === repos.length - 1 }))) : null,
 	]
 }
 
@@ -1096,13 +1171,26 @@ function SelectionBar(b: Ctx) {
 }
 
 function SettingsPage(b: Ctx) {
-	const { TableRowGroup, TableSwitchRow } = Design
+	const { TableRow, TableRowGroup, TableSwitchRow } = Design
 	return [
 		h(
 			TableRowGroup,
 			{ key: 'appearance', title: 'Appearance' },
 			h(TableSwitchRow, { label: 'Compact plugin cards', subLabel: 'Hide the author, contributors and version on plugin cards', value: b.compact, onValueChange: b.changeCompact }),
 		),
+		h(
+			TableRowGroup,
+			{ key: 'notifications', title: 'Notifications' },
+			h(TableRow, { label: 'Notifications', subLabel: `${ALERT_MODES[b.alertDefault]}. A repository can replace this from its info sheet.`, icon: icon('BellIcon'), arrow: true, onPress: () => openAlertDefaultSheet(b.alertDefault) }),
+		),
+		h(
+			TableRowGroup,
+			{ key: 'security', title: 'Security' },
+			scanAllRow(b),
+		),
+		b.hiddenCount
+			? h(TableRowGroup, { key: 'hidden', title: 'Repositories' }, h(TableRow, { label: 'Hidden repositories', subLabel: `${b.hiddenCount} hidden`, icon: icon('EyeSlashIcon'), arrow: true, onPress: openHiddenSheet }))
+			: null,
 		h(
 			TableRowGroup,
 			{ key: 'feedback', title: 'Feedback' },

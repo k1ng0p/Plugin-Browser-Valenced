@@ -82,11 +82,19 @@ export const SORTS = {
 
 export type SortKey = keyof typeof SORTS
 
-export const ALERT_MODES: Record<AlertMode, { button: string; summary: string }> = {
-	all: { button: 'New plugins and updates', summary: 'New plugins and updates to your plugins' },
-	news: { button: 'New plugins only', summary: 'New plugins only' },
-	updates: { button: 'Updates to my plugins', summary: 'Only updates to your plugins' },
-	off: { button: 'Off', summary: 'Off' },
+export const ALERT_DETAILS: Record<AlertMode | 'default', { description: string; icon: string }> = {
+	default: { description: 'Follows the setting for all repositories', icon: 'SettingsIcon' },
+	all: { description: 'New plugins, themes and fonts, plus recently updated ones', icon: 'BellIcon' },
+	news: { description: 'Only newly added plugins, themes and fonts', icon: 'PlusLargeIcon' },
+	updates: { description: 'Only plugins, themes and fonts updated recently', icon: 'ClockIcon' },
+	off: { description: 'Nothing shows up', icon: 'BellSlashIcon' },
+}
+
+export const ALERT_MODES: Record<AlertMode, string> = {
+	all: 'Recently updated & new',
+	news: 'New only',
+	updates: 'Recently updated only',
+	off: 'Off',
 }
 
 export const SUPPORT_NOTICE = "IMPORTANT: Do not ask for Plugin Browser support, troubleshooting, or assistance in the Valenced server. Any requests for Plugin Browser-related support in this server may result in moderation action."
@@ -103,6 +111,13 @@ export const COMMUNITY_REPO = 'https://community.valenced.app/'
 export const BUILT_IN_REPO: Repo = { url: slash(COMMUNITY_REPO), source: 'https://github.com/Valenced/valenced-community-plugins', badges: ['Built in Repo'], builtIn: true }
 export const SELF_ID = 'k1ngop.repository-browser'
 export const OWNER_ID = '641266820187160576'
+// the author's own repository is always first
+export const OWNER_REPO: Repo = {
+	url: slash('https://k1ng0p.github.io/Valenced-Plugins-by-k1ng0p/'),
+	source: 'https://github.com/k1ng0p/Valenced-Plugins-by-k1ng0p',
+	discord: OWNER_ID,
+	badges: ['Plugin Browser Author', 'Trusted'],
+}
 export const SOURCE_URL = 'https://github.com/k1ng0p/Valenced-Plugins-by-k1ng0p/tree/main/plugins/repository-browser'
 
 export type Note = { title?: string; text: string; level: 'info' | 'warning' | 'critical' }

@@ -1,12 +1,6 @@
 {
   "repos": [
     {
-      "url": "https://k1ng0p.github.io/Valenced-Plugins-by-k1ng0p/",
-      "source": "https://github.com/k1ng0p/Valenced-Plugins-by-k1ng0p",
-      "discord": "641266820187160576",
-      "badges": ["Official", "Trusted", "Maintainer"]
-    },
-    {
       "url": "https://fshinz.github.io/Valenced-Plugins-made-By-fshin/",
       "source": "https://github.com/fshinz/Valenced-Plugins-made-By-fshin",
       "discord": "1381008677301129257",
