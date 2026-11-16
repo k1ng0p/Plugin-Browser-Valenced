@@ -133,6 +133,18 @@
       "badges": ["Utility"]
     },
     {
+      "url": "https://8uvu.github.io/valenced-plugins/index.json",
+      "source": "https://github.com/8uvu/valenced-plugins",
+      "discord": "995845724908552252",
+      "badges": ["Utility"]
+    },
+    {
+      "url": "https://hieuxyz00.github.io/valenced-plugins/index.json",
+      "source": "https://github.com/hieuxyz00/valenced-plugins",
+      "discord": "994819569795485747",
+      "badges": ["Utility"]
+    },
+    {
       "url": "https://zvladyt.github.io/zvlad-tools/index.json",
       "source": "https://github.com/zVladyt/zvlad-tools",
       "discord": "1011995859984072705",
@@ -161,6 +173,12 @@
       "source": "https://github.com/MarkLong0467/EskimoPlugins",
       "discord": "1096566768421580912",
       "badges": ["Utility"]
+    },
+    {
+      "url": "https://jumeny.github.io/valenced-plugins/index.json",
+      "source": "https://github.com/jumeny/valenced-plugins",
+      "discord": "",
+      "badges": ["Themes"]
     },
     {
       "url": "https://val.is-your.app/",
