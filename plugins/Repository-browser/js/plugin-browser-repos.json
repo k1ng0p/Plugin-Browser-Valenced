@@ -73,6 +73,12 @@
       "badges": ["Trusted", "Utility"]
     },
     {
+      "url": "https://hakuxyz.github.io/valenced-plugins/index.json",
+      "source": "https://github.com/hakuxyz/valenced-plugins",
+      "discord": "288539929670189058",
+      "badges": ["Utility"]
+    },
+    {
       "url": "https://dxckie-cell.github.io/valenced-plugins/",
       "source": "https://github.com/dxckie-cell/valenced-plugins",
       "discord": "772390964471791630",
@@ -89,6 +95,12 @@
       "source": "https://github.com/Purple-EyeZ/Valenced-Plugins",
       "discord": "646535537334812682",
       "badges": ["Trusted", "Developer", "Ports", "Themes"]
+    },
+    {
+      "url": "https://thatkerimguy.github.io/KerimsPluginRepo/index.json",
+      "source": "https://github.com/thatkerimguy/KerimsPluginRepo",
+      "discord": "366522056797323266",
+      "badges": ["Utility"]
     },
     {
       "url": "https://valenced.mudrhiod.me/",
