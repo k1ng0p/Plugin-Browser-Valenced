@@ -5,6 +5,7 @@ import { ReactNavigationNative } from '@valenced/externals/react-navigation'
 import { React, ReactNative } from '@valenced/react'
 import { CountsCard, NoteBanner, Notice, PluginCard, TipNote, RepoAvatar, RepoBadges } from './components'
 import { allVerdict, lastAllScan, lastScan, scanAllRepositories, scanRepository, VERDICTS } from './scan'
+import { duplicateBadge } from './duplicates-sheet'
 import { openAllScanSheet, openScanSheet } from './scan-sheet'
 import { openAlertDefaultSheet, openHiddenSheet, openRepoActionsSheet, openBulkInstallSheet, openAboutSheet, openFeedSheet, openKindsSheet, openRepoInfoSheet, openBulkUninstallSheet, openPluginSheet } from './sheets'
 import type { CardUpdate } from './components'
@@ -534,6 +535,7 @@ function useBrowser() {
 			compact,
 			origin,
 			actions: pluginActions(repo, plugin, fromSearch),
+			copies: duplicateBadge(repo, plugin),
 			update: updateFor(repo, plugin),
 			warning: [compatibilityWarning(plugin, state?.discord, blocked.get(plugin.id)?.text), ...missingDependencies(plugin, state?.installed), installBlock(repo, plugin) && `Can't be installed: ${installBlock(repo, plugin)}`].filter(Boolean).join('\n') || undefined,
 			selectable,

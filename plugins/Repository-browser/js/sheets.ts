@@ -7,6 +7,8 @@ import { ReactNativeSafeAreaContext } from '@valenced/externals/react-native-saf
 import { parsePluginContributor } from '@valenced/plugins/utils'
 import { React, ReactNative } from '@valenced/react'
 import { lookupGeneratedIconComponent } from '@valenced/utils/discord'
+import { badgeFor } from './duplicates'
+import { openDuplicatesSheet, relatedOf } from './duplicates-sheet'
 import { catalog, dependentsOf, dismiss, dismissAll, isLegacy, listings, missingDependencies, openUserProfile, parseAuthor, setAlertDefault, setAlertMode, setKindMuted, clearAlertMode, toggleHidden, togglePinned, useStore } from './data'
 import { addRepo, available, blocked, checkInstall, install, openPluginSettings, pendingReload, readState, setHeld, toggle, uninstall, updatePlugins } from './valenced'
 import type { BulkItem } from './valenced'
@@ -1036,6 +1038,22 @@ function PluginSheet({ repo: initialRepo, plugin, onChange }: SheetProps) {
 	const requires = (plugin.requires ?? []).filter(entry => !entry.endsWith('(optional)'))
 	const dependents = installed && state ? dependentsOf(id, state.installed) : []
 
+	const { same, similar } = relatedOf(initialRepo.url, plugin)
+	const sameElsewhere =
+		same.length || similar.length
+			? h(
+					TableRowGroup,
+					{ hasIcons: true, title: same.length ? 'Same plugin elsewhere' : 'Similar plugins' },
+					h(TableRow, {
+						icon: h(TableRowAssetIcon, { name: 'ListBulletsIcon' }),
+						label: same.length ? `Also on ${same.length} other ${same.length === 1 ? 'repository' : 'repositories'}` : `${similar.length} similar ${similar.length === 1 ? 'plugin' : 'plugins'}: ${similar[0].plugin.name}`,
+						subLabel: same.length && badgeFor(plugin, same, url => listings.get(url)?.name ?? hostOf(url)).kind === 'older' ? 'A newer version exists, tap to see the differences' : 'Tap to see the differences and compare the code',
+						arrow: true,
+						onPress: () => openDuplicatesSheet({ repo: initialRepo, plugin }),
+					}),
+				)
+			: null
+
 	const advanced = h(
 		TableRowGroup,
 		{ hasIcons: true, title: 'Advanced' },
@@ -1048,7 +1066,7 @@ function PluginSheet({ repo: initialRepo, plugin, onChange }: SheetProps) {
 			: null,
 	)
 
-	return h(ActionSheet, null, h(Stack, { spacing: 24, style: { paddingTop: 8 } }, info, actions, updates, advanced))
+	return h(ActionSheet, null, h(Stack, { spacing: 24, style: { paddingTop: 8 } }, info, actions, updates, sameElsewhere, advanced))
 }
 
 export function openPluginSheet(props: SheetProps) {

@@ -1,9 +1,10 @@
 import { Checkbox } from '@valenced/components'
 import { Design } from '@valenced/discord/design'
 import { React, ReactNative } from '@valenced/react'
-import { cachedAvatar, catalog, discordUser, githubAvatar, newRepoCount, unreadCount, useStore } from './data'
-import { AVATAR_SIZE, ICON_INDENT, NOTICE, SUPPORT_NOTICE, asset, h, icon, iconSlot, inform, isRemote } from './shared'
+import { cachedAvatar, catalog, discordUser, githubAvatar, newRepoCount, save, unreadCount, useStore } from './data'
+import { AVATAR_SIZE, ICON_INDENT, NOTICE, SUPPORT_NOTICE, asset, confirm, h, icon, iconSlot, inform, isRemote } from './shared'
 import { PluginByline, WarningNote } from './sheets'
+import type { CopyKind } from './duplicates'
 import type { ListedPlugin, Listing, Note, Repo } from './shared'
 export type CardUpdate = { from: string; to: string; state: 'ready' | 'busy' | 'pending'; onPress: () => void }
 
@@ -49,6 +50,7 @@ type PluginCardProps = {
 	version?: string
 	origin?: string
 	actions: any[]
+	copies?: { label: string; kind: CopyKind; onPress: () => void }
 	update?: CardUpdate
 	warning?: string
 	selectable?: boolean
@@ -58,7 +60,7 @@ type PluginCardProps = {
 }
 
 export function PluginCard(props: PluginCardProps) {
-	const { plugin, version, pinned, compact, origin, actions, update, warning, selectable, selected, onPress, onLongPress } = props
+	const { plugin, version, pinned, compact, origin, actions, copies, update, warning, selectable, selected, onPress, onLongPress } = props
 	const { Pressable, View } = ReactNative
 	const { Button, Card, Text } = Design
 	return h(
@@ -93,6 +95,7 @@ export function PluginCard(props: PluginCardProps) {
 					!compact && h(PluginByline, { plugin, version }),
 					origin && h(Text, { color: 'text-muted', variant: 'text-sm/medium', style: { marginTop: 2 } }, origin),
 					h(Text, { variant: 'text-md/medium', style: { marginTop: compact ? 0 : 4 } }, plugin.description),
+					copies && h(Pressable, { onPress: copies.onPress, style: { alignSelf: 'flex-start', marginTop: 6 } }, h(Badge, { label: copies.label, tone: COPY_TONES[copies.kind] })),
 					pinned && h(Text, { variant: 'text-sm/semibold', color: 'text-link', style: { marginTop: 6 } }, 'Pinned \u2022 updates are skipped'),
 					update &&
 						h(
@@ -158,7 +161,15 @@ export function TipNote({ text }: { text: string }) {
 
 export function Notice() {
 	const { View } = ReactNative
-	const { Card, IconButton, Text } = Design
+	const { Button, Card, IconButton, Text } = Design
+	const hidden = useStore()?.noticeHidden
+	if (hidden) return null
+
+	// the warning stays gone for good, updates do not bring it back
+	const hide = async () => {
+		if (await confirm('Hide this warning?', "It won't be shown again, even after updates.", 'Hide')) await save({ noticeHidden: true })
+	}
+
 	return h(
 		Card,
 		{ border: 'strong', style: { paddingVertical: 14, paddingHorizontal: 16 } },
@@ -187,6 +198,7 @@ export function Notice() {
 				}),
 			),
 		),
+		h(View, { style: { alignSelf: 'flex-start', marginTop: 12 } }, h(Button, { text: "Don't show again", size: 'sm', variant: 'secondary', onPress: hide })),
 	)
 }
 
@@ -220,7 +232,15 @@ const RARITY_COMMON: BadgeTone = { fill: '#242426', border: '#64656A', text: '#F
 const RARITY_RARE: BadgeTone = { fill: '#15183B', border: '#4A53C0', text: '#FFFFFF', shape: 'triangle' }
 const RARITY_EPIC: BadgeTone = { fill: '#25153A', border: '#E255C0', text: '#FFFFFF', shape: 'diamond' }
 const RARITY_MYTHIC: BadgeTone = { fill: '#3D1A04', border: '#C78F66', text: '#F8C29C', shape: 'star' }
-const SECONDARY: BadgeTone = { fill: '#1E1E20', border: '#2F2F31', text: '#FFFFFF' }
+// the newest copy is green, one with a newer copy elsewhere is amber, the same version and similar plugins stay quiet
+const COPY_TONES: Record<CopyKind, BadgeTone> = {
+	latest: { fill: '#0E2A1B', border: '#2D9D5B', text: '#FFFFFF', shape: 'circle', shapeColor: '#4ADE80' },
+	older: { fill: '#33250A', border: '#D9A441', text: '#FFFFFF', shape: 'triangle', shapeColor: '#F5B94A' },
+	same: { fill: '#1E1E20', border: '#2F2F31', text: '#FFFFFF' },
+	similar: { fill: '#15183B', border: '#4A53C0', text: '#FFFFFF', shape: 'diamond', shapeColor: '#8C95FF' },
+}
+
+export const SECONDARY: BadgeTone = { fill: '#1E1E20', border: '#2F2F31', text: '#FFFFFF' }
 const EXPRESSIVE: BadgeTone = { fill: '#FFFFFF', border: '#FFFFFF', text: '#3A3B3D' }
 const WARNING: BadgeTone = { fill: '#DA373C', border: '#DA373C', text: '#FFFFFF' }
 
@@ -265,10 +285,10 @@ function BadgeShapeIcon({ shape, color }: { shape: BadgeShape; color: string }) 
 	return star ? h(Image, { source: star, style: { ...gap, width: 9, height: 9, tintColor: color } }) : null
 }
 
-function Badge({ label }: { label: string }) {
+export function Badge({ label, tone: given }: { label: string; tone?: BadgeTone }) {
 	const { View } = ReactNative
 	const { Text } = Design
-	const tone = BADGE_TONES[label.toLowerCase()] ?? EXPRESSIVE
+	const tone = given ?? BADGE_TONES[label.toLowerCase()] ?? EXPRESSIVE
 	return h(
 		View,
 		{

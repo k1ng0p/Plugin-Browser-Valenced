@@ -126,6 +126,12 @@ export function scanArchive(bytes: Uint8Array, expected: { id: string; size?: nu
 	return findings
 }
 
+// all the script code of an archive as one text, for comparing plugins
+export function readScripts(bytes: Uint8Array) {
+	const files = unzipSync(bytes, { filter: file => /\.(js|mjs|cjs)$/i.test(file.name) && file.originalSize <= MAX_FILE })
+	return Object.values(files).map(data => strFromU8(data)).join('\n')
+}
+
 export function verdictOf(plugins: PluginScan[]): Verdict {
 	const scanned = plugins.filter(plugin => !plugin.skipped)
 	if (!scanned.length) return 'unknown'
@@ -138,7 +144,7 @@ const hostOf = (url: string) => url.match(/^https:\/\/([^/]+)/)?.[1].toLowerCase
 const aborted = (message: string) => Object.assign(new Error(message), { name: 'AbortError' })
 
 // XMLHttpRequest instead of fetch so a download can be cut off once it passes the size limit
-function download(url: string, signal: AbortSignal) {
+export function download(url: string, signal: AbortSignal) {
 	return new Promise<Uint8Array>((resolve, reject) => {
 		const xhr = new XMLHttpRequest()
 		const stop = (error: Error) => {

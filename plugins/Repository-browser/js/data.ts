@@ -32,6 +32,7 @@ type StoreData = {
 	haptics?: boolean
 	compact?: boolean
 	warned?: boolean
+	noticeHidden?: boolean
 	disabledAll?: string[]
 }
 
@@ -78,6 +79,7 @@ export function readStore(): StoreData {
 		haptics: typeof raw.haptics === 'boolean' ? raw.haptics : undefined,
 		compact: typeof raw.compact === 'boolean' ? raw.compact : undefined,
 		warned: raw.warned === true,
+		noticeHidden: raw.noticeHidden === true,
 		disabledAll: Array.isArray(raw.disabledAll) ? raw.disabledAll.filter((id: unknown): id is string => typeof id === 'string') : undefined,
 	}
 }
