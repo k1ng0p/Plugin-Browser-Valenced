@@ -175,9 +175,21 @@
       "badges": ["Ports"]
     },
     {
+      "url": "https://inkmachinegirl.github.io/Valenced-Plugins/",
+      "source": "https://github.com/inkmachinegirl/Valenced-Plugins",
+      "discord": "1530541600936038597",
+      "badges": ["Utility"]
+    },
+    {
       "url": "https://valenced-plugins.655.workers.dev/index.json",
       "source": "https://github.com/6-5-5/valenced-plugins",
       "discord": "783754042476068914",
+      "badges": ["Utility"]
+    },
+    {
+      "url": "https://neptalu0.github.io/valenced-plugins/",
+      "source": "https://github.com/neptalu0/valenced-plugins",
+      "discord": "",
       "badges": ["Utility"]
     },
     {
@@ -197,6 +209,12 @@
       "source": "https://code.is-your.app/SheWhoReignsSupreme/revenge-next-plugs",
       "discord": "1356936317501571214",
       "badges": ["Trusted", "Utility", "Themes"]
+    },
+    {
+      "url": "https://nxbby.github.io/nxbby-valenced-plugins/",
+      "source": "https://github.com/nxbby/nxbby-valenced-plugins",
+      "discord": "692322761657286706",
+      "badges": ["Utility"]
     }
   ]
 }
