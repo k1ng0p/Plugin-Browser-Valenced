@@ -1,16 +1,22 @@
 {
   "repos": [
     {
+      "url": "https://kmmiio99o.github.io/valenced-plugins/",
+      "source": "https://github.com/kmmiio99o/valenced-plugins",
+      "discord": "879393496627306587",
+      "badges": ["official", "Trusted", "Developer", "Popular"]
+    },
+    {
+      "url": "https://plugins.benjiisworld.com/",
+      "source": "https://github.com/Accentaro/Valenced-Plugins",
+      "discord": "463702169443368970",
+      "badges": ["verified", "Trusted", "Developer", "Utility"]
+    },
+    {
       "url": "https://fshinz.github.io/Valenced-Plugins-made-By-fshin/",
       "source": "https://github.com/fshinz/Valenced-Plugins-made-By-fshin",
       "discord": "1381008677301129257",
       "badges": ["Trusted", "Utility"]
-    },
-    {
-      "url": "https://caffeinepx.github.io/valeffeine",
-      "source": "https://github.com/caffeinepx/valeffeine",
-      "discord": "1217564834825109604",
-      "badges": ["Utility"]
     },
     {
       "url": "https://plugins.obamabot.me/valenced-plugins",
@@ -31,27 +37,21 @@
       "badges": ["Trusted", "Developer"]
     },
     {
-      "url": "https://raw.githubusercontent.com/dariussbezy/dariussbezy-Plugins/main/index.json",
-      "source": "https://github.com/dariussbezy/dariussbezy-Plugins",
-      "discord": "908767091522420817",
-      "badges": ["Utility", "Themes"]
+      "url": "https://loki-vtx.github.io/Valnced-Plugins/",
+      "source": "https://github.com/Loki-vtx/Valnced-Plugins",
+      "discord": "918437723755384832",
+      "badges": ["Trusted", "Ports"]
     },
     {
       "url": "https://67.mlem.my/index.json",
       "source": "https://github.com/mlemception/mlem-plugins",
       "discord": "1274359272318304277",
-      "badges": ["Utility", "Trusted"]
+      "badges": ["Trusted", "Utility"]
     },
     {
-      "url": "https://plugins.benjiisworld.com/",
-      "source": "https://github.com/Accentaro/Valenced-Plugins",
-      "discord": "463702169443368970",
-      "badges": ["Trusted", "Developer", "Utility"]
-    },
-    {
-      "url": "https://loki-vtx.github.io/Valnced-Plugins/",
-      "source": "https://github.com/Loki-vtx/Valnced-Plugins",
-      "discord": "918437723755384832",
+      "url": "https://noreplyui5.github.io/valenced-plugin/",
+      "source": "https://github.com/NoReplyUI5/valenced-plugin",
+      "discord": "1053918356375351386",
       "badges": ["Trusted", "Ports"]
     },
     {
@@ -73,22 +73,10 @@
       "badges": ["Trusted", "Utility"]
     },
     {
-      "url": "https://hakuxyz.github.io/valenced-plugins/index.json",
-      "source": "https://github.com/hakuxyz/valenced-plugins",
-      "discord": "288539929670189058",
-      "badges": ["Utility"]
-    },
-    {
       "url": "https://dxckie-cell.github.io/valenced-plugins/",
       "source": "https://github.com/dxckie-cell/valenced-plugins",
       "discord": "772390964471791630",
-      "badges": ["Utility", "Ports", "Trusted"]
-    },
-    {
-      "url": "https://xezjk.github.io/valenced-plugins/",
-      "source": "https://github.com/xezjk/valenced-plugins",
-      "discord": "985520795126206464",
-      "badges": ["Utility", "Ports", "Trusted"]
+      "badges": ["Trusted", "Ports", "Utility"]
     },
     {
       "url": "https://purple-eyez.github.io/Valenced-Plugins/",
@@ -97,16 +85,40 @@
       "badges": ["Trusted", "Developer", "Ports", "Themes"]
     },
     {
-      "url": "https://thatkerimguy.github.io/KerimsPluginRepo/index.json",
-      "source": "https://github.com/thatkerimguy/KerimsPluginRepo",
-      "discord": "366522056797323266",
-      "badges": ["Utility"]
-    },
-    {
       "url": "https://valenced.mudrhiod.me/",
       "source": "https://github.com/mudrhiod/valenced-plugins",
       "discord": "807170846497570848",
       "badges": ["Trusted", "Themes", "icons"]
+    },
+    {
+      "url": "https://val.is-your.app/",
+      "source": "https://code.is-your.app/SheWhoReignsSupreme/revenge-next-plugs",
+      "discord": "1356936317501571214",
+      "badges": ["Trusted", "Utility", "Themes"]
+    },
+    {
+      "url": "https://xezjk.github.io/valenced-plugins/",
+      "source": "https://github.com/xezjk/valenced-plugins",
+      "discord": "985520795126206464",
+      "badges": ["Trusted", "Ports", "Utility"]
+    },
+    {
+      "url": "https://raw.githubusercontent.com/dariussbezy/dariussbezy-Plugins/main/index.json",
+      "source": "https://github.com/dariussbezy/dariussbezy-Plugins",
+      "discord": "908767091522420817",
+      "badges": ["Utility", "Themes"]
+    },
+    {
+      "url": "https://caffeinepx.github.io/valeffeine",
+      "source": "https://github.com/caffeinepx/valeffeine",
+      "discord": "1217564834825109604",
+      "badges": ["unmaintained", "archived", "Utility"]
+    },
+    {
+      "url": "https://hakuxyz.github.io/valenced-plugins/index.json",
+      "source": "https://github.com/hakuxyz/valenced-plugins",
+      "discord": "288539929670189058",
+      "badges": ["Utility"]
     },
     {
       "url": "https://caramel3625.github.io/valenced-plugins/",
@@ -115,10 +127,10 @@
       "badges": ["Themes", "Fonts"]
     },
     {
-      "url": "https://noreplyui5.github.io/valenced-plugin/",
-      "source": "https://github.com/NoReplyUI5/valenced-plugin",
-      "discord": "1053918356375351386",
-      "badges": ["Trusted", "Ports"]
+      "url": "https://thatkerimguy.github.io/KerimsPluginRepo/index.json",
+      "source": "https://github.com/thatkerimguy/KerimsPluginRepo",
+      "discord": "366522056797323266",
+      "badges": ["Utility"]
     },
     {
       "url": "https://aeongdesu.github.io/slimplugins",
@@ -131,12 +143,6 @@
       "source": "https://github.com/Yumistra/Freestyle-Valenced",
       "discord": "1203667124724170752",
       "badges": ["Utility"]
-    },
-    {
-      "url": "https://kmmiio99o.github.io/valenced-plugins/",
-      "source": "https://github.com/kmmiio99o/valenced-plugins",
-      "discord": "879393496627306587",
-      "badges": ["Trusted", "Developer", "Popular"]
     },
     {
       "url": "https://apollyxnhashed.github.io/Valenced-Plugins/index.json",
@@ -205,12 +211,6 @@
       "badges": ["Themes"]
     },
     {
-      "url": "https://val.is-your.app/",
-      "source": "https://code.is-your.app/SheWhoReignsSupreme/revenge-next-plugs",
-      "discord": "1356936317501571214",
-      "badges": ["Trusted", "Utility", "Themes"]
-    },
-    {
       "url": "https://nxbby.github.io/nxbby-valenced-plugins/",
       "source": "https://github.com/nxbby/nxbby-valenced-plugins",
       "discord": "692322761657286706",
@@ -220,6 +220,12 @@
       "url": "https://horndogcop.github.io/valenced-plugins/index.json",
       "source": "https://github.com/horndogcop/valenced-plugins",
       "discord": "",
+      "badges": ["Utility"]
+    },
+    {
+      "url": "https://desom-fu.github.io/valenced-plugins/index.json",
+      "source": "https://github.com/Desom-fu/valenced-plugins",
+      "discord": "419073734469615617",
       "badges": ["Utility"]
     }
   ]
