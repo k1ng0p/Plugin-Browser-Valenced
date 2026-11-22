@@ -7,7 +7,7 @@ import { formatVersion } from '@valenced/plugins/utils'
 import { KEY, POLL_INTERVAL, bindReporter, clearProblems, icon, reportError, setSelfVersion, watermark } from './shared'
 
 export default plugin({
-	jsonStorage: { load: true, default: { seen: {}, ack: 0, snaps: {}, remote: null, known: null, newRepos: {}, updatesSeen: null, alerts: {}, muted: {}, haptics: true, compact: false, warned: false, noticeHidden: false } },
+	jsonStorage: { load: true, default: { seen: {}, ack: 0, snaps: {}, remote: null, known: null, newRepos: {}, updatesSeen: null, alerts: {}, muted: {}, haptics: true, compact: false, warned: false, noticeHidden: false, scanBeforeInstall: false } },
 	SettingsComponent: Browser,
 	start({ cleanup, plugin, jsonStorage }) {
 		try {

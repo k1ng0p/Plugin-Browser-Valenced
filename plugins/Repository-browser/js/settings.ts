@@ -250,7 +250,7 @@ function useBrowser() {
 		if (!list.length || updatingIds.length) return
 		setUpdatingIds(ids)
 		try {
-			await updatePlugins(list.map(info => ({ id: info.id, name: listedName(info.id), installed: info.installed, available: info.available, channel: info.channel })))
+			await updatePlugins(list.map(info => ({ id: info.id, name: listedName(info.id), installed: info.installed, available: info.available, channel: info.channel, repo: info.repo })))
 		} finally {
 			setUpdatingIds([])
 		}
@@ -555,6 +555,12 @@ function useBrowser() {
 		tap()
 	}
 
+	const scanBeforeInstall = data?.scanBeforeInstall === true
+	const changeScanBeforeInstall = (value: boolean) => {
+		save({ scanBeforeInstall: value })
+		tap()
+	}
+
 	const compact = data?.compact === true
 	const changeCompact = (value: boolean) => {
 		save({ compact: value })
@@ -733,6 +739,8 @@ function useBrowser() {
 		note: data?.remote?.note ?? null,
 		settingsOpen,
 		haptics,
+		scanBeforeInstall,
+		changeScanBeforeInstall,
 		changeHaptics,
 		compact,
 		changeCompact,
@@ -1189,6 +1197,7 @@ function SettingsPage(b: Ctx) {
 			TableRowGroup,
 			{ key: 'security', title: 'Security' },
 			scanAllRow(b),
+			h(TableSwitchRow, { key: 'vet', label: 'Scan before installing', subLabel: 'Checks a plugin from an unofficial repository when you install or update it and warns if it has serious red flags', value: b.scanBeforeInstall, onValueChange: b.changeScanBeforeInstall }),
 		),
 		b.hiddenCount
 			? h(TableRowGroup, { key: 'hidden', title: 'Repositories' }, h(TableRow, { label: 'Hidden repositories', subLabel: `${b.hiddenCount} hidden`, icon: icon('EyeSlashIcon'), arrow: true, onPress: openHiddenSheet }))

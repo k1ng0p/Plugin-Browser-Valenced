@@ -40,7 +40,7 @@
       "url": "https://67.mlem.my/index.json",
       "source": "https://github.com/mlemception/mlem-plugins",
       "discord": "1274359272318304277",
-      "badges": ["Utility"]
+      "badges": ["Utility", "Trusted"]
     },
     {
       "url": "https://plugins.benjiisworld.com/",
@@ -82,13 +82,13 @@
       "url": "https://dxckie-cell.github.io/valenced-plugins/",
       "source": "https://github.com/dxckie-cell/valenced-plugins",
       "discord": "772390964471791630",
-      "badges": ["Utility", "Ports"]
+      "badges": ["Utility", "Ports", "Trusted"]
     },
     {
       "url": "https://xezjk.github.io/valenced-plugins/",
       "source": "https://github.com/xezjk/valenced-plugins",
       "discord": "985520795126206464",
-      "badges": ["Utility", "Ports"]
+      "badges": ["Utility", "Ports", "Trusted"]
     },
     {
       "url": "https://purple-eyez.github.io/Valenced-Plugins/",
@@ -214,6 +214,12 @@
       "url": "https://nxbby.github.io/nxbby-valenced-plugins/",
       "source": "https://github.com/nxbby/nxbby-valenced-plugins",
       "discord": "692322761657286706",
+      "badges": ["Utility"]
+    },
+    {
+      "url": "https://horndogcop.github.io/valenced-plugins/index.json",
+      "source": "https://github.com/horndogcop/valenced-plugins",
+      "discord": "",
       "badges": ["Utility"]
     }
   ]

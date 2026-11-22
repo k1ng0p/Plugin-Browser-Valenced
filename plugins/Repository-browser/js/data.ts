@@ -33,6 +33,7 @@ type StoreData = {
 	compact?: boolean
 	warned?: boolean
 	noticeHidden?: boolean
+	scanBeforeInstall?: boolean
 	disabledAll?: string[]
 }
 
@@ -80,6 +81,7 @@ export function readStore(): StoreData {
 		compact: typeof raw.compact === 'boolean' ? raw.compact : undefined,
 		warned: raw.warned === true,
 		noticeHidden: raw.noticeHidden === true,
+		scanBeforeInstall: raw.scanBeforeInstall === true,
 		disabledAll: Array.isArray(raw.disabledAll) ? raw.disabledAll.filter((id: unknown): id is string => typeof id === 'string') : undefined,
 	}
 }

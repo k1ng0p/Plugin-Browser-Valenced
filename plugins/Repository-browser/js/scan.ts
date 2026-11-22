@@ -1,7 +1,8 @@
 import { fetchRepo, listings } from './data'
-import { flagged, scanRepo, serious } from './scanner'
+import { flagged, hostOf, scanEntry, scanRepo, serious, verdictOf } from './scanner'
 import { confirm, errorMessage, fail, formatBytes, logProblem, logText, slash } from './shared'
 import type { Finding, PluginScan, RepoScan, Verdict } from './scanner'
+import type { ListedPlugin } from './shared'
 import type { Repo } from './shared'
 
 export type AllScan = { at: number; entries: { repo: Repo; scan: RepoScan }[] }
@@ -129,3 +130,26 @@ export async function scanAllRepositories(repos: { repo: Repo; name: string }[],
 	lastAll = { at: Date.now(), entries }
 	return lastAll
 }
+
+const PARALLEL_PLUGINS = 2
+
+// a few chosen plugins, two at a time, each repository's index is fetched once
+export async function scanPlugins(items: { repoUrl: string; plugin: Pick<ListedPlugin, 'id' | 'name'> }[], signal: AbortSignal) {
+	const indexes = new Map<string, Promise<{ plugins: Record<string, any> }>>()
+	const indexOf = (url: string) => indexes.get(url) ?? indexes.set(url, fetchRepo(url)).get(url)!
+	const results: PluginScan[] = []
+	for (let start = 0; start < items.length; start += PARALLEL_PLUGINS) {
+		results.push(
+			...(await Promise.all(
+				items.slice(start, start + PARALLEL_PLUGINS).map(async ({ repoUrl, plugin }) => {
+					const entry = (await indexOf(repoUrl)).plugins[plugin.id] ?? { name: plugin.name }
+					return scanEntry(plugin.id, entry, hostOf(repoUrl), signal, (id, error) => logProblem(`scan ${id}`, error, [`Repository: ${repoUrl}`]))
+				}),
+			)),
+		)
+	}
+	return results
+}
+
+// the scan sheet shows a repository, so a few plugins are shown as one with a name of their own
+export const asScan = (name: string, url: string, plugins: PluginScan[]): RepoScan => ({ url, name, at: Date.now(), plugins, verdict: verdictOf(plugins) })

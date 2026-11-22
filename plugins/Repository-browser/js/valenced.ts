@@ -1,8 +1,9 @@
 import { RootNavigationRef } from '@valenced/discord/modules/main_tabs_v2'
 import { formatVersion } from '@valenced/plugins/utils'
+import { vetBeforeInstall } from './scan-sheet'
 import { BUILT_IN_REPO, askReload, asObject, clearProblems, confirm, confirmAddRepos, errorMessage, explainError, fail, isBuiltIn, logProblem, native, reportError, setDiscordVersion, showError, slash, tap, usesEnvelope } from './shared'
 import type { AvailableUpdate, ListedPlugin, PluginRef, Repo, ValencedRepo } from './shared'
-type PendingUpdate = { id: string; name: string; installed: string; available: string; channel: string }
+type PendingUpdate = { id: string; name: string; installed: string; available: string; channel: string; repo: string }
 export type ValencedState = Awaited<ReturnType<typeof readState>>
 
 export const available = new Map<string, AvailableUpdate>()
@@ -307,6 +308,7 @@ export async function install(repoUrl: string, plugin: ListedPlugin, ref?: Plugi
 		if (others.length) lines.push(`Also installs: ${others.join(', ')}`)
 		if (warnings.length) lines.push(warnings.join('\n'))
 		if (ref?.type === 'version') lines.push('Updates will be paused to stay on this version. Pick a channel or turn on Allow updates to receive updates again.')
+		if (!(await vetBeforeInstall([{ repoUrl: known.url, plugin }]))) return false
 		if (!(await confirm('Install plugin?', lines.join('\n\n')))) return false
 
 		await native('valenced.plugins.install', [plan])
@@ -351,6 +353,7 @@ export async function updatePlugins(updates: PendingUpdate[]) {
 		const warnings = plans.flatMap(warningMessages)
 		if (warnings.length) lines.push(warnings.join('\n'))
 		const title = updates.length === 1 ? 'Update plugin?' : `Update ${updates.length} plugins?`
+		if (!(await vetBeforeInstall(updates.map(item => ({ repoUrl: item.repo, plugin: item }))))) return false
 		if (!(await confirm(title, lines.join('\n'), 'Update'))) return false
 
 		before = await readState().catch(() => null)
@@ -481,6 +484,8 @@ export async function installMany(items: BulkItem[]) {
 			fail(new Error(skipped.join('\n')), 'install plugins', [`Repositories: ${[...new Set(items.map(item => item.repoName))].join(', ')}`], 'No plugin could be installed')
 			return false
 		}
+
+		if (!(await vetBeforeInstall(planned.map(item => ({ repoUrl: urlOf(item.repo), plugin: item }))))) return false
 
 		const extras = [...new Set(plans.flatMap(plan => plan.actions.map((action: any) => action.id as string)))].filter(id => !planned.some(item => item.id === id))
 		const warnings = plans.flatMap(warningMessages)

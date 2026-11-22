@@ -2,14 +2,14 @@ import { ActionSheetActionCreators } from '@valenced/discord/actions'
 import { Design } from '@valenced/discord/design'
 import { ReactNative } from '@valenced/react'
 import { RepoAvatar } from './components'
-import { freshAvatarEpoch, listings } from './data'
-import { VERDICTS, allScanReport, allVerdict, counts, finding, scanReport } from './scan'
+import { freshAvatarEpoch, listings, readStore } from './data'
+import { VERDICTS, allScanReport, allVerdict, asScan, counts, finding, scanPlugins, scanReport } from './scan'
 import type { AllScan } from './scan'
 import { flagged, serious } from './scanner'
 import type { Finding, PluginScan, RepoScan } from './scanner'
-import type { Repo } from './shared'
+import type { ListedPlugin, Repo } from './shared'
 import { RefPage } from './sheets'
-import { ago, copyToClipboard, h, logText, tap } from './shared'
+import { ago, copyToClipboard, fail, h, isBuiltIn, logProblem, logText, modal, tap } from './shared'
 
 const WHY: Record<string, string> = {
 	'Discord webhook': 'A webhook lets code post data to a Discord channel. Stolen data is often sent this way.',
@@ -147,10 +147,15 @@ function frame(title: string, children: unknown[]) {
 	return h(BottomSheet, { scrollable: true, header: h(BottomSheetTitleHeader, { title }) }, h(RefPage, { empty: '' }, h(Stack, { spacing: 16 }, ...children)))
 }
 
-const footer = (notScanned: number) => [
-	notScanned ? h(Design.Text, { key: 'skipped', variant: 'text-sm/medium', color: 'text-muted' }, `${notScanned} could not be scanned.`) : null,
-	h(Design.Text, { key: 'note', variant: 'text-xs/medium', color: 'text-muted' }, 'This is a basic check of the plugin code. It can miss threats, so it does not prove a plugin is safe.'),
-]
+// what could not be scanned and why, then the note that the scan is basic
+function footer(list: RepoScan[]) {
+	const skipped = list.flatMap(scan => scan.plugins.filter(plugin => plugin.skipped))
+	return [
+		...skipped.slice(0, 3).map(plugin => h(Design.Text, { key: `skipped-${plugin.id}`, variant: 'text-sm/medium', color: 'text-muted' }, `Could not scan ${plugin.name}: ${plugin.skipped}`)),
+		skipped.length > 3 ? h(Design.Text, { key: 'skipped-more', variant: 'text-sm/medium', color: 'text-muted' }, `${skipped.length - 3} more could not be scanned.`) : null,
+		h(Design.Text, { key: 'note', variant: 'text-xs/medium', color: 'text-muted' }, 'This is a basic check of the plugin code. It can miss threats, so it does not prove a plugin is safe.'),
+	]
+}
 
 function ScanSheet({ scan, again }: { scan: RepoScan; again: () => void }) {
 	const { plugins, scanned, detected, high, medium } = counts([scan])
@@ -169,7 +174,7 @@ function ScanSheet({ scan, again }: { scan: RepoScan; again: () => void }) {
 			again,
 		}),
 		...pluginCards(scan),
-		...footer(plugins - scanned),
+		...footer([scan]),
 	])
 }
 
@@ -177,7 +182,8 @@ function ScanSheet({ scan, again }: { scan: RepoScan; again: () => void }) {
 function AllScanSheet({ all, again }: { all: AllScan; again: () => void }) {
 	const { View } = ReactNative
 	const { Card, TableRow, TableRowGroup, Text } = Design
-	const { plugins, scanned, detected, high, medium } = counts(all.entries.map(entry => entry.scan))
+	const list = all.entries.map(entry => entry.scan)
+	const { plugins, scanned, detected, high, medium } = counts(list)
 	const epoch = freshAvatarEpoch()
 	const avatar = (repo: Repo) => h(RepoAvatar, { repo, listing: listings.get(repo.url), epoch })
 	const bad = all.entries.filter(entry => flagged(entry.scan).length)
@@ -232,10 +238,58 @@ function AllScanSheet({ all, again }: { all: AllScan; again: () => void }) {
 					),
 				)
 			: null,
-		...footer(plugins - scanned),
+		...footer(list),
 	])
 }
 
 export const openScanSheet = (scan: RepoScan, again: () => void) => ActionSheetActionCreators.openLazy(Promise.resolve({ default: ScanSheet }), SCAN_SHEET, { scan, again })
 
 export const openAllScanSheet = (all: AllScan, again: () => void) => ActionSheetActionCreators.openLazy(Promise.resolve({ default: AllScanSheet }), ALL_SCAN_SHEET, { all, again })
+
+type Target = { repoUrl: string; plugin: Pick<ListedPlugin, 'id' | 'name'> }
+
+// scans a few plugins and opens the result, "Scan again" repeats it
+async function showScanFor(items: Target[], name: string) {
+	const run = async () => {
+		try {
+			openScanSheet(asScan(name, items[0].repoUrl, await scanPlugins(items, new AbortController().signal)), run)
+		} catch (e) {
+			fail(e, `scan ${name}`, [`Repository: ${items[0].repoUrl}`])
+		}
+	}
+	await run()
+}
+
+export const scanOnePlugin = (repoUrl: string, plugin: Target['plugin']) => showScanFor([{ repoUrl, plugin }], plugin.name)
+
+// with the setting on, a plugin from an unofficial repository is scanned first and serious red flags need a second yes
+export async function vetBeforeInstall(items: Target[]) {
+	if (!readStore().scanBeforeInstall) return true
+	const checked = items.filter(item => !isBuiltIn(item.repoUrl))
+	if (!checked.length) return true
+
+	let results: Awaited<ReturnType<typeof scanPlugins>>
+	try {
+		results = await scanPlugins(checked, new AbortController().signal)
+	} catch (e) {
+		// the install itself needs the same connection and reports its own failure
+		logProblem('scan before install', e, [`Repositories: ${[...new Set(checked.map(item => item.repoUrl))].join(', ')}`])
+		return true
+	}
+	const risky = results.filter(plugin => plugin.findings.some(item => item.severity === 'high'))
+	if (!risky.length) return true
+
+	const reasons = (plugin: (typeof risky)[number]) => [...new Set(plugin.findings.filter(item => item.severity === 'high').map(item => item.reason))].join('; ')
+	return new Promise<boolean>(done =>
+		modal(
+			risky.length === 1 ? 'Serious red flag found' : 'Serious red flags found',
+			`${risky.map(plugin => `${plugin.name}: ${reasons(plugin)}`).join('\n')}\n\nThis is a basic scan and it can be wrong.`,
+			Button => [
+				h(Button, { key: 'install', text: 'Install anyway', variant: 'destructive', onPress: () => done(true) }),
+				h(Button, { key: 'details', text: 'See details', variant: 'secondary', onPress: () => { done(false); showScanFor(checked, risky.length === 1 ? risky[0].name : 'Plugins to install') } }),
+				h(Button, { key: 'cancel', text: 'Cancel', variant: 'secondary', onPress: () => done(false) }),
+			],
+			() => done(false),
+		),
+	)
+}

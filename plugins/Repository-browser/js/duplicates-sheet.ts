@@ -15,21 +15,28 @@ const DUPLICATES_SHEET = 'plugin-browser-duplicates'
 
 const repoName = (url: string) => listings.get(url)?.name ?? hostOf(url)
 
-let known: { key: string; index: Index } | null = null
+let known: { key: string; index: Index; related: Map<string, { same: Copy[]; similar: Copy[] }> } | null = null
 
 // every plugin of the repositories on the list, rebuilt only when a listing changes
 function everything() {
 	const key = catalog.map(repo => `${repo.url}:${listings.get(repo.url)?.at ?? 0}:${listings.get(repo.url)?.plugins.length ?? 0}`).join('|')
-	if (known?.key !== key) known = { key, index: buildIndex(catalog.flatMap(repo => (listings.get(repo.url)?.plugins ?? []).map(plugin => ({ repoUrl: repo.url, plugin })))) }
-	return known.index
+	if (known?.key !== key) known = { key, related: new Map(), index: buildIndex(catalog.flatMap(repo => (listings.get(repo.url)?.plugins ?? []).map(plugin => ({ repoUrl: repo.url, plugin })))) }
+	return known
 }
 
 // the same plugin on other repositories, and plugins that do much the same under another name
+// worked out once per plugin until a listing changes, a page of cards asks for it on every render
 export function relatedOf(repoUrl: string, plugin: ListedPlugin) {
-	const index = everything()
-	const subject = { repoUrl, plugin }
-	const same = otherCopies(subject, index.all)
-	return { same, similar: similarTo(subject, index, same).map(match => match.copy) }
+	const { index, related } = everything()
+	const key = `${repoUrl}#${plugin.id}`
+	let found = related.get(key)
+	if (!found) {
+		const subject = { repoUrl, plugin }
+		const same = otherCopies(subject, index.all)
+		found = { same, similar: similarTo(subject, index, same).map(match => match.copy) }
+		related.set(key, found)
+	}
+	return found
 }
 
 // what a plugin card shows when it is on other repositories or has a look-alike

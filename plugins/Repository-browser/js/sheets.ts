@@ -9,6 +9,7 @@ import { React, ReactNative } from '@valenced/react'
 import { lookupGeneratedIconComponent } from '@valenced/utils/discord'
 import { badgeFor } from './duplicates'
 import { openDuplicatesSheet, relatedOf } from './duplicates-sheet'
+import { scanOnePlugin } from './scan-sheet'
 import { catalog, dependentsOf, dismiss, dismissAll, isLegacy, listings, missingDependencies, openUserProfile, parseAuthor, setAlertDefault, setAlertMode, setKindMuted, clearAlertMode, toggleHidden, togglePinned, useStore } from './data'
 import { addRepo, available, blocked, checkInstall, install, openPluginSettings, pendingReload, readState, setHeld, toggle, uninstall, updatePlugins } from './valenced'
 import type { BulkItem } from './valenced'
@@ -803,6 +804,7 @@ function PluginSheet({ repo: initialRepo, plugin, onChange }: SheetProps) {
 
 	const [state, setState] = React.useState<ValencedState | null>(null)
 	const [repo, setRepo] = React.useState(initialRepo)
+	const [scanning, setScanning] = React.useState(false)
 	const [ref, setRef] = React.useState<PluginRef>({ type: 'channel', channel: 'latest' })
 	const [listing, setListing] = React.useState<RepoListing | null>(null)
 	const [enabledNow, setEnabledNow] = React.useState<boolean | null>(null)
@@ -1015,7 +1017,7 @@ function PluginSheet({ repo: initialRepo, plugin, onChange }: SheetProps) {
 							label: 'Update available',
 							subLabel: `v${update!.installed} to v${update!.available}`,
 							arrow: true,
-							onPress: () => updatePlugins([{ id, name, installed: update!.installed, available: update!.available, channel: update!.channel }]).then(done => done && changed()),
+							onPress: () => updatePlugins([{ id, name, installed: update!.installed, available: update!.available, channel: update!.channel, repo: update!.repo }]).then(done => done && changed()),
 						})
 					: null,
 				h(TableSwitchRow, {
@@ -1054,6 +1056,27 @@ function PluginSheet({ repo: initialRepo, plugin, onChange }: SheetProps) {
 				)
 			: null
 
+	const security = h(
+		TableRowGroup,
+		{ hasIcons: true, title: 'Security' },
+		h(TableRow, {
+			icon: icon('ShieldIcon'),
+			label: scanning ? 'Scanning...' : 'Scan for malware',
+			subLabel: 'Checks the code of this plugin before you install it',
+			arrow: !scanning,
+			onPress: scanning
+				? undefined
+				: async () => {
+						setScanning(true)
+						try {
+							await scanOnePlugin(initialRepo.url, plugin)
+						} finally {
+							setScanning(false)
+						}
+					},
+		}),
+	)
+
 	const advanced = h(
 		TableRowGroup,
 		{ hasIcons: true, title: 'Advanced' },
@@ -1066,7 +1089,7 @@ function PluginSheet({ repo: initialRepo, plugin, onChange }: SheetProps) {
 			: null,
 	)
 
-	return h(ActionSheet, null, h(Stack, { spacing: 24, style: { paddingTop: 8 } }, info, actions, updates, sameElsewhere, advanced))
+	return h(ActionSheet, null, h(Stack, { spacing: 24, style: { paddingTop: 8 } }, info, actions, updates, sameElsewhere, security, advanced))
 }
 
 export function openPluginSheet(props: SheetProps) {

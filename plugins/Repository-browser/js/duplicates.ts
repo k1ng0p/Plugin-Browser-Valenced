@@ -123,13 +123,22 @@ export function terms(plugin: ListedPlugin) {
 	return found
 }
 
-export type Index = { weight: Map<string, number>; all: Copy[] }
+type Vector = { terms: Set<string>; norm: number }
+
+export type Index = { weight: Map<string, number>; vectors: Map<ListedPlugin, Vector>; all: Copy[] }
 
 // rare words count more than common ones, "message" is in half the plugins and says little
 export function buildIndex(all: Copy[]): Index {
 	const frequency = new Map<string, number>()
-	for (const copy of all) for (const term of terms(copy.plugin)) frequency.set(term, (frequency.get(term) ?? 0) + 1)
-	return { weight: new Map([...frequency].map(([term, count]) => [term, Math.log(1 + all.length / count)])), all }
+	const sets = new Map<ListedPlugin, Set<string>>()
+	for (const { plugin } of all) {
+		const found = terms(plugin)
+		sets.set(plugin, found)
+		for (const term of found) frequency.set(term, (frequency.get(term) ?? 0) + 1)
+	}
+	const weight = new Map([...frequency].map(([term, count]) => [term, Math.log(1 + all.length / count)]))
+	const vectors = new Map([...sets].map(([plugin, found]) => [plugin, { terms: found, norm: Math.sqrt([...found].reduce((sum, term) => sum + (weight.get(term) ?? 0) ** 2, 0)) }]))
+	return { weight, vectors, all }
 }
 
 const MIN_SHARED = 2
@@ -137,16 +146,15 @@ const MIN_SCORE = 0.3
 
 // plugins that do much the same thing under another name, found from what their names and descriptions say
 export function similarTo(subject: Copy, index: Index, skip: Copy[], limit = 3) {
-	const mine = terms(subject.plugin)
-	const size = (set: Set<string>) => Math.sqrt([...set].reduce((sum, term) => sum + (index.weight.get(term) ?? 0) ** 2, 0))
-	const own = size(mine)
+	const mine = index.vectors.get(subject.plugin)
+	if (!mine?.norm) return []
 	return index.all
 		.filter(copy => copy.repoUrl !== subject.repoUrl && !skip.includes(copy))
 		.map(copy => {
-			const theirs = terms(copy.plugin)
-			const shared = [...mine].filter(term => theirs.has(term))
+			const theirs = index.vectors.get(copy.plugin)
+			const shared = theirs ? [...mine.terms].filter(term => theirs.terms.has(term)) : []
 			const dot = shared.reduce((sum, term) => sum + (index.weight.get(term) ?? 0) ** 2, 0)
-			return { copy, shared, score: own && size(theirs) ? dot / (own * size(theirs)) : 0 }
+			return { copy, shared, score: theirs?.norm ? dot / (mine.norm * theirs.norm) : 0 }
 		})
 		.filter(match => match.shared.length >= MIN_SHARED && match.score >= MIN_SCORE)
 		.sort((a, b) => b.score - a.score)

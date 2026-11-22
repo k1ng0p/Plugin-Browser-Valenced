@@ -7,7 +7,7 @@ export type Verdict = 'clean' | 'suspicious' | 'dangerous' | 'unknown'
 export type RepoScan = { url: string; source?: string; name: string; at: number; plugins: PluginScan[]; verdict: Verdict; error?: string }
 
 type Rule = { severity: Severity; reason: string; test: RegExp; evidence?: (match: string) => string }
-type IndexPlugin = { name?: string; channels?: Record<string, string>; versions?: Record<string, { url?: string; size?: number; sha256?: string }> }
+export type IndexPlugin = { name?: string; channels?: Record<string, string>; versions?: Record<string, { url?: string; size?: number; sha256?: string }> }
 
 const MAX_ZIP = 5 * 1024 * 1024
 const MAX_FILE = 3 * 1024 * 1024
@@ -140,7 +140,7 @@ export function verdictOf(plugins: PluginScan[]): Verdict {
 	return levels.length ? 'suspicious' : 'clean'
 }
 
-const hostOf = (url: string) => url.match(/^https:\/\/([^/]+)/)?.[1].toLowerCase() ?? ''
+export const hostOf = (url: string) => url.match(/^https:\/\/([^/]+)/)?.[1].toLowerCase() ?? ''
 const aborted = (message: string) => Object.assign(new Error(message), { name: 'AbortError' })
 
 // XMLHttpRequest instead of fetch so a download can be cut off once it passes the size limit
@@ -167,42 +167,44 @@ export function download(url: string, signal: AbortSignal) {
 	})
 }
 
-// scans the newest build of every plugin in the index, a plugin that can't be scanned says why
+// the newest build of one plugin, a plugin that can't be scanned says why
+export async function scanEntry(id: string, plugin: IndexPlugin, ownHost: string, signal: AbortSignal, onSkip?: (id: string, error: unknown) => void) {
+	const version = plugin.channels?.latest ?? Object.values(plugin.channels ?? {})[0] ?? ''
+	const build = plugin.versions?.[version]
+	const result: PluginScan = { id, name: plugin.name || id, version, findings: [] }
+	if (!build?.url?.startsWith('https://')) {
+		result.skipped = 'No download address in the index'
+		return result
+	}
+	const key = build.sha256 && [ownHost, id, build.size, build.sha256].join(':')
+	const hit = key ? cache.get(key) : undefined
+	if (hit && Date.now() - hit.at < CACHE_TTL) {
+		result.findings = [...hit.findings]
+	} else {
+		try {
+			result.findings = scanArchive(await download(build.url, signal), { id, size: build.size, ownHost })
+			if (key) cache.set(key, { at: Date.now(), findings: [...result.findings] })
+		} catch (e) {
+			result.skipped = (e as Error).message.split('\n')[0]
+			if (!signal.aborted) onSkip?.(id, e)
+		}
+	}
+	if (/^(valenced|revenge)\./.test(id) && !ownHost.endsWith('valenced.app')) result.findings.push({ severity: 'medium', reason: 'Id mimics a Valenced plugin' })
+	return result
+}
+
+// scans the newest build of every plugin in the index
 export async function scanRepo(repo: { url: string; name: string; index: { plugins: Record<string, IndexPlugin> } }, signal: AbortSignal, onProgress: (done: number, total: number) => void, onSkip: (id: string, error: unknown) => void) {
 	const entries = Object.entries(repo.index.plugins)
 	const plugins: PluginScan[] = []
 	const ownHost = hostOf(repo.url)
 	let next = 0
 
-	const scanOne = async ([id, plugin]: [string, IndexPlugin]) => {
-		const version = plugin.channels?.latest ?? Object.values(plugin.channels ?? {})[0] ?? ''
-		const build = plugin.versions?.[version]
-		const result: PluginScan = { id, name: plugin.name || id, version, findings: [] }
-		if (!build?.url?.startsWith('https://')) {
-			result.skipped = 'No download address in the index'
-			return result
-		}
-		const key = build.sha256 && [ownHost, id, build.size, build.sha256].join(':')
-		const hit = key ? cache.get(key) : undefined
-		if (hit && Date.now() - hit.at < CACHE_TTL) {
-			result.findings = [...hit.findings]
-		} else {
-			try {
-				result.findings = scanArchive(await download(build.url, signal), { id, size: build.size, ownHost })
-				if (key) cache.set(key, { at: Date.now(), findings: [...result.findings] })
-			} catch (e) {
-				result.skipped = (e as Error).message.split('\n')[0]
-				if (!signal.aborted) onSkip(id, e)
-			}
-		}
-		if (/^(valenced|revenge)\./.test(id) && !ownHost.endsWith('valenced.app')) result.findings.push({ severity: 'medium', reason: 'Id mimics a Valenced plugin' })
-		return result
-	}
-
 	await Promise.all(
 		Array.from({ length: PARALLEL }, async () => {
 			while (next < entries.length && !signal.aborted) {
-				plugins.push(await scanOne(entries[next++]))
+				const [id, plugin] = entries[next++]
+				plugins.push(await scanEntry(id, plugin, ownHost, signal, onSkip))
 				onProgress(plugins.length, entries.length)
 			}
 		}),
