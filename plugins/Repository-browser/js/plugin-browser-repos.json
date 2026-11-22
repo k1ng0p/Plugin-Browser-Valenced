@@ -151,8 +151,8 @@
       "badges": ["Utility"]
     },
     {
-      "url": "https://8uvu.github.io/valenced-plugins/index.json",
-      "source": "https://github.com/8uvu/valenced-plugins",
+      "url": "https://8uvu.github.io/Ceno-Plugins/index.json",
+      "source": "https://github.com/8uvu/Ceno-Plugins",
       "discord": "995845724908552252",
       "badges": ["Utility"]
     },
@@ -190,6 +190,12 @@
       "url": "https://valenced-plugins.655.workers.dev/index.json",
       "source": "https://github.com/6-5-5/valenced-plugins",
       "discord": "783754042476068914",
+      "badges": ["Utility"]
+    },
+    {
+      "url": "https://vvispy.github.io/valenced-plugin-wispy/index.json",
+      "source": "https://github.com/VVispy/valenced-plugin-wispy",
+      "discord": "481311394688532501",
       "badges": ["Utility"]
     },
     {
