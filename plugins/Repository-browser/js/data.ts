@@ -34,6 +34,7 @@ type StoreData = {
 	warned?: boolean
 	noticeHidden?: boolean
 	scanBeforeInstall?: boolean
+	overlapWarning?: boolean
 	disabledAll?: string[]
 }
 
@@ -82,6 +83,7 @@ export function readStore(): StoreData {
 		warned: raw.warned === true,
 		noticeHidden: raw.noticeHidden === true,
 		scanBeforeInstall: raw.scanBeforeInstall === true,
+		overlapWarning: raw.overlapWarning !== false,
 		disabledAll: Array.isArray(raw.disabledAll) ? raw.disabledAll.filter((id: unknown): id is string => typeof id === 'string') : undefined,
 	}
 }

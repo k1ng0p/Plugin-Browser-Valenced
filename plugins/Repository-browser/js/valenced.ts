@@ -1,5 +1,6 @@
 import { RootNavigationRef } from '@valenced/discord/modules/main_tabs_v2'
 import { formatVersion } from '@valenced/plugins/utils'
+import { warnOverlap } from './overlaps'
 import { vetBeforeInstall } from './scan-sheet'
 import { BUILT_IN_REPO, askReload, asObject, clearProblems, confirm, confirmAddRepos, errorMessage, explainError, fail, isBuiltIn, logProblem, native, reportError, setDiscordVersion, showError, slash, tap, usesEnvelope } from './shared'
 import type { AvailableUpdate, ListedPlugin, PluginRef, Repo, ValencedRepo } from './shared'
@@ -58,6 +59,8 @@ const discordOf = (plugins?: { manifest: { id: string; version: unknown } }[]) =
 	return found ? formatVersion(found.manifest.version as Parameters<typeof formatVersion>[0]) : undefined
 }
 
+export type InstalledPlugin = { id: string; name: string; description: string; author: string; contributors?: string[]; version: string; enabled: boolean; repo: string | null }
+
 export async function readState() {
 	const envelope = await usesEnvelope()
 	const [repos, plugins, saved, slots] = await Promise.all([
@@ -71,10 +74,12 @@ export async function readState() {
 	setDiscordVersion(discordOf(plugins))
 
 	const installed = new Map<string, { version: string; settings: boolean; source: { repo: string | null; channel: string; held: boolean } | null }>()
+	const list: InstalledPlugin[] = []
 	let discord: string | undefined
 	for (const plugin of plugins ?? []) {
 		if (plugin.manifest.id === 'discord') discord = formatVersion(plugin.manifest.version)
 		if (plugin.internal) continue
+		list.push({ id: plugin.manifest.id, name: plugin.manifest.name, description: plugin.manifest.description ?? '', author: plugin.manifest.author, contributors: plugin.manifest.contributors, version: formatVersion(plugin.manifest.version), enabled: false, repo: plugin.source?.repo ?? null })
 		installed.set(plugin.manifest.id, {
 			version: formatVersion(plugin.manifest.version),
 			settings: !!plugin.script?.includes('SettingsComponent'),
@@ -83,7 +88,8 @@ export async function readState() {
 	}
 
 	const enabled: Record<string, { enabled?: boolean; pendingReload?: boolean }> = envelope ? (asObject(saved)[slots?.active] ?? {}) : (saved?.states ?? {})
-	return { repos: repos ?? [], installed, enabled, discord }
+	for (const item of list) item.enabled = enabled[item.id]?.enabled ?? false
+	return { repos: repos ?? [], installed, enabled, discord, list }
 }
 
 export async function refreshAvailable(catalog: Repo[]) {
@@ -308,6 +314,7 @@ export async function install(repoUrl: string, plugin: ListedPlugin, ref?: Plugi
 		if (others.length) lines.push(`Also installs: ${others.join(', ')}`)
 		if (warnings.length) lines.push(warnings.join('\n'))
 		if (ref?.type === 'version') lines.push('Updates will be paused to stay on this version. Pick a channel or turn on Allow updates to receive updates again.')
+		if (!(await warnOverlap([{ repoUrl: known.url, plugin }]))) return false
 		if (!(await vetBeforeInstall([{ repoUrl: known.url, plugin }]))) return false
 		if (!(await confirm('Install plugin?', lines.join('\n\n')))) return false
 
@@ -485,6 +492,7 @@ export async function installMany(items: BulkItem[]) {
 			return false
 		}
 
+		if (!(await warnOverlap(planned.map(item => ({ repoUrl: urlOf(item.repo), plugin: item }))))) return false
 		if (!(await vetBeforeInstall(planned.map(item => ({ repoUrl: urlOf(item.repo), plugin: item }))))) return false
 
 		const extras = [...new Set(plans.flatMap(plan => plan.actions.map((action: any) => action.id as string)))].filter(id => !planned.some(item => item.id === id))

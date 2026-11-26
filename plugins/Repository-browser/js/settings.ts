@@ -6,6 +6,7 @@ import { React, ReactNative } from '@valenced/react'
 import { CountsCard, NoteBanner, Notice, PluginCard, TipNote, RepoAvatar, RepoBadges } from './components'
 import { allVerdict, lastAllScan, lastScan, scanAllRepositories, scanRepository, VERDICTS } from './scan'
 import { duplicateBadge } from './duplicates-sheet'
+import { openOverlapSheet } from './overlaps'
 import { openAllScanSheet, openScanSheet } from './scan-sheet'
 import { openAlertDefaultSheet, openHiddenSheet, openRepoActionsSheet, openBulkInstallSheet, openAboutSheet, openFeedSheet, openKindsSheet, openRepoInfoSheet, openBulkUninstallSheet, openPluginSheet } from './sheets'
 import type { CardUpdate } from './components'
@@ -555,6 +556,11 @@ function useBrowser() {
 		tap()
 	}
 
+	const overlapWarning = data?.overlapWarning !== false
+	const changeOverlapWarning = (value: boolean) => {
+		save({ overlapWarning: value })
+		tap()
+	}
 	const scanBeforeInstall = data?.scanBeforeInstall === true
 	const changeScanBeforeInstall = (value: boolean) => {
 		save({ scanBeforeInstall: value })
@@ -741,6 +747,8 @@ function useBrowser() {
 		haptics,
 		scanBeforeInstall,
 		changeScanBeforeInstall,
+		overlapWarning,
+		changeOverlapWarning,
 		changeHaptics,
 		compact,
 		changeCompact,
@@ -1198,6 +1206,12 @@ function SettingsPage(b: Ctx) {
 			{ key: 'security', title: 'Security' },
 			scanAllRow(b),
 			h(TableSwitchRow, { key: 'vet', label: 'Scan before installing', subLabel: 'Checks a plugin from an unofficial repository when you install or update it and warns if it has serious red flags', value: b.scanBeforeInstall, onValueChange: b.changeScanBeforeInstall }),
+		),
+		h(
+			TableRowGroup,
+			{ key: 'duplicates', title: 'Duplicates' },
+			h(TableRow, { key: 'find', label: 'Find duplicate plugins', subLabel: 'Checks your installed plugins, enabled or not, for ones that overlap', icon: icon('CopyIcon'), arrow: true, onPress: openOverlapSheet }),
+			h(TableSwitchRow, { key: 'warn', label: 'Warn about duplicates when installing', subLabel: 'Shows what is already installed, enabled or not, before you install a plugin that is the same or does much the same', value: b.overlapWarning, onValueChange: b.changeOverlapWarning }),
 		),
 		b.hiddenCount
 			? h(TableRowGroup, { key: 'hidden', title: 'Repositories' }, h(TableRow, { label: 'Hidden repositories', subLabel: `${b.hiddenCount} hidden`, icon: icon('EyeSlashIcon'), arrow: true, onPress: openHiddenSheet }))

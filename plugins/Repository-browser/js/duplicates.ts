@@ -145,10 +145,10 @@ const MIN_SHARED = 2
 const MIN_SCORE = 0.3
 
 // plugins that do much the same thing under another name, found from what their names and descriptions say
-export function similarTo(subject: Copy, index: Index, skip: Copy[], limit = 3) {
+export function similarTo(subject: Copy, index: Index, skip: Copy[], limit = 3, pool = index.all) {
 	const mine = index.vectors.get(subject.plugin)
 	if (!mine?.norm) return []
-	return index.all
+	return pool
 		.filter(copy => copy.repoUrl !== subject.repoUrl && !skip.includes(copy))
 		.map(copy => {
 			const theirs = index.vectors.get(copy.plugin)
@@ -159,4 +159,34 @@ export function similarTo(subject: Copy, index: Index, skip: Copy[], limit = 3) 
 		.filter(match => match.shared.length >= MIN_SHARED && match.score >= MIN_SCORE)
 		.sort((a, b) => b.score - a.score)
 		.slice(0, limit)
+}
+
+// installed plugins that overlap: the same plugin under two ids, or ones that do much the same
+// every installed plugin has a place of its own, so the "other repository" rule never hides a pair
+export function groupOverlaps(items: Copy[], index: Index) {
+	const parent = new Map(items.map(item => [item, item]))
+	const find = (item: Copy): Copy => {
+		let root = item
+		while (parent.get(root) !== root) root = parent.get(root) as Copy
+		return root
+	}
+	const twinned = new Set<Copy>()
+	for (const item of items) {
+		const twins = otherCopies(item, items)
+		if (twins.length) twinned.add(item)
+		for (const other of [...twins, ...similarTo(item, index, twins, 3, items).map(match => match.copy)]) parent.set(find(item), find(other))
+	}
+	const groups = new Map<Copy, Copy[]>()
+	for (const item of items) groups.set(find(item), [...(groups.get(find(item)) ?? []), item])
+	return [...groups.values()]
+		.filter(members => members.length > 1)
+		.map(members => ({ members, same: members.some(member => twinned.has(member)) }))
+		.sort((a, b) => Number(b.same) - Number(a.same))
+}
+
+// what is installed that a plugin about to be installed would double up: the same plugin, or one that does much the same
+export function overlapsWith(candidate: Copy, installed: Copy[], index: Index) {
+	const name = normalizeName(candidate.plugin.name)
+	const same = installed.filter(item => item.plugin.id === candidate.plugin.id || (name.length >= MIN_NAME && normalizeName(item.plugin.name) === name))
+	return { same, similar: similarTo(candidate, index, same, 3, installed).map(match => match.copy) }
 }
