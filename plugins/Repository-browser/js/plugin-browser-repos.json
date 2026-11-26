@@ -233,6 +233,12 @@
       "source": "https://github.com/Desom-fu/valenced-plugins",
       "discord": "419073734469615617",
       "badges": ["Utility"]
+    },
+    {
+      "url": "https://cheikhhachem.github.io/valenced-plugins/index.json",
+      "source": "https://github.com/cheikhhachem/valenced-plugins",
+      "discord": "460603743390662666",
+      "badges": ["Utility", "beta"]
     }
   ]
 }
