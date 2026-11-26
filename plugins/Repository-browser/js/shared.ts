@@ -105,7 +105,7 @@ export const NOTICE =
 const isIndexFile = (url: string) => /\.json\/*(\?.*)?$/i.test(url)
 export const slash = (url: string) => (isIndexFile(url) ? url.replace(/(\.json)\/+(?=\?|$)/i, '$1') : url.replace(/\/*$/, '/'))
 export const indexUrl = (url: string) => (isIndexFile(url) ? url : `${slash(url)}index.json`)
-export const COMMUNITY_REPO = 'https://community.valenced.app/'
+export const COMMUNITY_REPO = 'https://community.valenced.app/index.json'
 
 // comes with Valenced itself and can't be removed, so it is always listed, and always last
 export const BUILT_IN_REPO: Repo = { url: slash(COMMUNITY_REPO), source: 'https://github.com/Valenced/valenced-community-plugins', badges: ['Built in Repo'], builtIn: true }
@@ -118,7 +118,7 @@ export const OWNER_REPO: Repo = {
 	discord: OWNER_ID,
 	badges: ['Plugin Browser Author', 'Trusted'],
 }
-export const SOURCE_URL = 'https://github.com/k1ng0p/Valenced-Plugins-by-k1ng0p/tree/main/plugins/repository-browser'
+export const SOURCE_URL = 'https://github.com/k1ng0p/Plugin-Browser-Valenced'
 
 export type Note = { title?: string; text: string; level: 'info' | 'warning' | 'critical' }
 

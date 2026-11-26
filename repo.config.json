@@ -1,5 +1,6 @@
 {
 	"name": "Plugin Browser by k1ng_op",
 	"description": "Discover plugins, explore repositories, and easily add new sources to Valenced.",
+	"icon": "ic_browse_channel",
 	"channels": {}
 }

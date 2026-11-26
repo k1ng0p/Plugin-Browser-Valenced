@@ -1193,38 +1193,39 @@ function SettingsPage(b: Ctx) {
 	return [
 		h(
 			TableRowGroup,
-			{ key: 'appearance', title: 'Appearance' },
-			h(TableSwitchRow, { label: 'Compact plugin cards', subLabel: 'Hide the author, contributors and version on plugin cards', value: b.compact, onValueChange: b.changeCompact }),
+			{ key: 'appearance', hasIcons: true, title: 'Appearance' },
+			h(TableSwitchRow, { icon: icon('ListBulletsIcon'), label: 'Compact plugin cards', subLabel: 'Hide the author, contributors and version on plugin cards', value: b.compact, onValueChange: b.changeCompact }),
 		),
 		h(
 			TableRowGroup,
-			{ key: 'notifications', title: 'Notifications' },
+			{ key: 'notifications', hasIcons: true, title: 'Notifications' },
 			h(TableRow, { label: 'Notifications', subLabel: `${ALERT_MODES[b.alertDefault]}. A repository can replace this from its info sheet.`, icon: icon('BellIcon'), arrow: true, onPress: () => openAlertDefaultSheet(b.alertDefault) }),
 		),
 		h(
 			TableRowGroup,
-			{ key: 'security', title: 'Security' },
+			{ key: 'security', hasIcons: true, title: 'Security' },
 			scanAllRow(b),
-			h(TableSwitchRow, { key: 'vet', label: 'Scan before installing', subLabel: 'Checks a plugin from an unofficial repository when you install or update it and warns if it has serious red flags', value: b.scanBeforeInstall, onValueChange: b.changeScanBeforeInstall }),
+			h(TableSwitchRow, { key: 'vet', icon: icon('ShieldIcon'), label: 'Scan before installing', subLabel: 'Checks a plugin from an unofficial repository when you install or update it and warns if it has serious red flags', value: b.scanBeforeInstall, onValueChange: b.changeScanBeforeInstall }),
 		),
 		h(
 			TableRowGroup,
-			{ key: 'duplicates', title: 'Duplicates' },
+			{ key: 'duplicates', hasIcons: true, title: 'Duplicates' },
 			h(TableRow, { key: 'find', label: 'Find duplicate plugins', subLabel: 'Checks your installed plugins, enabled or not, for ones that overlap', icon: icon('CopyIcon'), arrow: true, onPress: openOverlapSheet }),
-			h(TableSwitchRow, { key: 'warn', label: 'Warn about duplicates when installing', subLabel: 'Shows what is already installed, enabled or not, before you install a plugin that is the same or does much the same', value: b.overlapWarning, onValueChange: b.changeOverlapWarning }),
+			h(TableSwitchRow, { key: 'warn', icon: icon('WarningIcon'), label: 'Warn about duplicates when installing', subLabel: 'Shows what is already installed, enabled or not, before you install a plugin that is the same or does much the same', value: b.overlapWarning, onValueChange: b.changeOverlapWarning }),
 		),
 		b.hiddenCount
-			? h(TableRowGroup, { key: 'hidden', title: 'Repositories' }, h(TableRow, { label: 'Hidden repositories', subLabel: `${b.hiddenCount} hidden`, icon: icon('EyeSlashIcon'), arrow: true, onPress: openHiddenSheet }))
+			? h(TableRowGroup, { key: 'hidden', hasIcons: true, title: 'Repositories' }, h(TableRow, { label: 'Hidden repositories', subLabel: `${b.hiddenCount} hidden`, icon: icon('EyeSlashIcon'), arrow: true, onPress: openHiddenSheet }))
 			: null,
 		h(
 			TableRowGroup,
-			{ key: 'feedback', title: 'Feedback' },
-			h(TableSwitchRow, { label: 'Haptic feedback', subLabel: 'A short vibration when selecting, installing and updating (Android)', value: b.haptics, onValueChange: b.changeHaptics }),
+			{ key: 'feedback', hasIcons: true, title: 'Feedback' },
+			h(TableSwitchRow, { icon: icon('MobilePhoneIcon'), label: 'Haptic feedback', subLabel: 'A short vibration when selecting, installing and updating (Android)', value: b.haptics, onValueChange: b.changeHaptics }),
 		),
 		h(
 			TableRowGroup,
-			{ key: 'plugins', title: 'Plugins' },
+			{ key: 'plugins', hasIcons: true, title: 'Plugins' },
 			h(TableSwitchRow, {
+				icon: icon('PuzzlePieceIcon'),
 				label: 'Disable/Enable all Plugins',
 				subLabel: "Switch on to turn off every downloaded plugin at once, handy when something breaks. Switch off to bring back the ones that were running. Plugin Browser and Valenced's own plugins stay on.",
 				value: b.disableAll,
